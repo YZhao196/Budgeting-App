@@ -30,10 +30,12 @@ import exporters as X
 import importers as IMP
 import theme as T
 from widgets import (
-    BoundedScroll, ChartCard, Clickable, DonutChart, GoalDialog, GoalsBar,
+    AreaChart, BoundedScroll, CalendarHeatmap, ChartCard, ChartLegend,
+    Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, PredictedIncomeCard, ProgressBar,
-    SegTabBar, SharedPlanDialog, Sidebar, SummaryCard, TopBar, clear_layout,
-    hsep, label, money, repeat_label, tag_chip,
+    SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
+    SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, hsep,
+    label, money, repeat_label, tag_chip,
 )
 
 
@@ -107,10 +109,16 @@ class OverviewPage(QWidget):
         self.chart = ChartCard(manager, year, month, doc.get("target_pnl", 0))
         self.chart.setMinimumHeight(196)
         self.predicted = PredictedIncomeCard(doc, year, month, store=manager)
+        self.budget_card, bly = card(margins=(16, 14, 16, 14), spacing=8)
+        bly.addWidget(label("Budget vs actual — top 5", T.TEXT_MUTED, 11))
+        self.budget_mini = GroupedBarChart()
+        bly.addWidget(self.budget_mini)
         rlay.addWidget(self.summary)
         rlay.addWidget(self.chart)
         rlay.addWidget(self.predicted)
+        rlay.addWidget(self.budget_card)
         rlay.addStretch(1)
+        self._refresh_budget_mini()
 
         main_row.addWidget(self.income_card, 1, Qt.AlignmentFlag.AlignTop)
         main_row.addWidget(self.expense_card, 1, Qt.AlignmentFlag.AlignTop)
@@ -122,6 +130,17 @@ class OverviewPage(QWidget):
         outer.addLayout(main_row, 1)
         outer.addWidget(self.goals_bar)
         QTimer.singleShot(0, self._equalize_lists)
+
+    def _refresh_budget_mini(self):
+        """Top-5 budgeted categories, bullet-bar style, on the right rail."""
+        rep = B.budget_report(self.dm.items(), self.dm.transactions(),
+                              self.year, self.month)
+        rows = sorted(
+            [(r["name"], r["ideal"], r["actual"]) for r in rep["rows"]
+             if r["ideal"] or r["actual"]],
+            key=lambda r: -max(r[1], r[2]))[:5]
+        self.budget_card.setVisible(bool(rows))
+        self.budget_mini.set_data(rows, self.doc.get("currency", "$"))
 
     def _equalize_lists(self):
         """Make both ledger borders end at the same place — the shorter list
@@ -147,6 +166,7 @@ class OverviewPage(QWidget):
                                doc.get("currency", "$"))
         self.predicted.set_context(doc, year, month)
         self.goals_bar.refresh(doc.get("currency", "$"))
+        self._refresh_budget_mini()
         QTimer.singleShot(0, self._equalize_lists)   # after layout settles
 
     def set_range(self, range_doc, year, month):
@@ -160,6 +180,7 @@ class OverviewPage(QWidget):
                                range_doc.get("currency", "$"))
         self.predicted.set_context(range_doc, year, month)
         self.goals_bar.refresh(range_doc.get("currency", "$"))
+        self._refresh_budget_mini()
         QTimer.singleShot(0, self._equalize_lists)
 
     def refresh(self):
@@ -170,6 +191,7 @@ class OverviewPage(QWidget):
                                self.doc.get("currency", "$"))
         self.predicted.set_context(self.doc, self.year, self.month)
         self.goals_bar.refresh(self.doc.get("currency", "$"))
+        self._refresh_budget_mini()
         QTimer.singleShot(0, self._equalize_lists)
 
     def set_summary_period(self, period):
@@ -340,6 +362,50 @@ class _AnalyticsOverview(QWidget):
         trow2, self.tiles2 = tile_row(["Best month", "Worst month", "Months positive", "Income growth"])
         lay.addLayout(trow2)
 
+        bva_card, bvly = card()
+        self._bva_title = label("Budget vs actual — this month", T.TEXT_MUTED, 12)
+        bvly.addWidget(self._bva_title)
+        self.bva = GroupedBarChart()
+        bvly.addWidget(self.bva)
+        lay.addWidget(bva_card)
+
+        stk_card, sly = card()
+        sly.addWidget(label("Spending composition — last 6 months", T.TEXT_MUTED, 12))
+        srow = QHBoxLayout(); srow.setSpacing(14)
+        self.stacked = StackedBarChart()
+        self.stacked.setMinimumHeight(230)
+        srow.addWidget(self.stacked, 1)
+        self.stacked_legend = ChartLegend()
+        leg_host = QVBoxLayout(); leg_host.addStretch(1)
+        leg_host.addWidget(self.stacked_legend); leg_host.addStretch(1)
+        srow.addLayout(leg_host)
+        sly.addLayout(srow)
+        self.stacked.hovered.connect(
+            lambda m, c: self.stacked_legend.set_hover(c))
+        self.stacked_legend.hovered.connect(self.stacked.set_hover_cat)
+        lay.addWidget(stk_card)
+
+        flow_card, fcly = card()
+        self._flow_title = label("Cash flow — this month", T.TEXT_MUTED, 12)
+        fcly.addWidget(self._flow_title)
+        self.sankey = SankeyChart()
+        fcly.addWidget(self.sankey)
+        lay.addWidget(flow_card)
+
+        fan_card, fanly = card()
+        fanly.addWidget(label("Liquid-balance forecast — next 6 months",
+                              T.TEXT_MUTED, 12))
+        self.fan = FanChart()
+        fanly.addWidget(self.fan)
+        lay.addWidget(fan_card)
+
+        nw_card, nwly = card()
+        self._nw_title = label("Net worth — history", T.TEXT_MUTED, 12)
+        nwly.addWidget(self._nw_title)
+        self.area = AreaChart()
+        nwly.addWidget(self.area)
+        lay.addWidget(nw_card)
+
         self._trend_label = label("P&L vs target — last 5 months  ·  click a point to filter breakdown",
                                   T.TEXT_MUTED, 12)
         trend, tlay = card()
@@ -441,6 +507,56 @@ class _AnalyticsOverview(QWidget):
         self.tiles[2].set_value(money(avg(pnls), cur),
                                 T.GREEN if avg(pnls) >= 0 else T.RED)
         self.tiles[3].set_value(f"{avg(rates) * 100:.1f}%", T.ACCENT)
+
+        # tiny trend lines under the averages
+        if len(incs) >= 2:
+            self.tiles[0].set_spark(incs[-12:], T.GREEN)
+            self.tiles[1].set_spark(exps[-12:], T.RED)
+            self.tiles[2].set_spark(pnls[-12:],
+                                    T.GREEN if pnls[-1] >= 0 else T.RED)
+            self.tiles[3].set_spark(rates[-12:], T.ACCENT)
+
+        # budget vs actual bullet rows (biggest first)
+        mn_name = dm.MONTH_NAMES[month]
+        self._bva_title.setText(f"Budget vs actual — {mn_name}")
+        rep_bva = B.budget_report(self.dm.items(), self.dm.transactions(),
+                                  year, month)
+        bva_rows = sorted(
+            [(r["name"], r["ideal"], r["actual"]) for r in rep_bva["rows"]
+             if r["ideal"] or r["actual"]],
+            key=lambda r: -max(r[1], r[2]))
+        self.bva.set_data(bva_rows, cur)
+
+        # spending composition — stacked bars + synced legend
+        cs = B.category_series(self.dm.items(), year, month, count=6)
+        colors = [T.SERIES[i % len(T.SERIES)]
+                  for i in range(len(cs["categories"]))]
+        self.stacked.set_data(cs["labels"], cs["categories"], cs["matrix"],
+                              colors, cur)
+        self.stacked_legend.set_rows(
+            [(colors[i], name,
+              money(sum(row[i] for row in cs["matrix"]), cur, signed=False))
+             for i, name in enumerate(cs["categories"])])
+
+        # cash-flow sankey — this month
+        self._flow_title.setText(f"Cash flow — {mn_name}")
+        flow = B.cashflow_links(self.dm.items(), year, month)
+        self.sankey.set_data(flow["income"], flow["outflows"], cur)
+
+        # liquid-balance forecast band
+        accounts = self.dm.accounts()
+        start_bal = B.liquid_balance(accounts)
+        band = B.forecast_band(self.dm.items(), start_bal, date.today(), months=6)
+        hist = [("Now", start_bal)]
+        self.fan.set_data(hist, band, cur)
+
+        # net-worth area (real snapshots once ≥2 exist, else reconstructed)
+        nw = B.net_worth(accounts)
+        self._nw_title.setText(
+            f"Net worth — {money(nw['net'], cur, signed=False)}")
+        nw_series = B.net_worth_series(self.dm.items(), accounts, date.today(),
+                                       self.dm.networth_history(), months=6)
+        self.area.set_data(nw_series, cur)
 
         # second row tiles
         if pnls:
@@ -815,7 +931,8 @@ class GoalsPage(QWidget):
         self.tiles[1].set_value(money(target, cur, signed=False), T.TEXT)
         self.tiles[2].set_value(f"{B.savings_rate(doc) * 100:.1f}%", T.ACCENT)
         frac = (pnl / target) if target > 0 else (1.0 if pnl > 0 else 0.0)
-        self.target_bar.set_frac(frac, T.GREEN if frac >= 1 else T.AMBER)
+        self.target_bar.set_frac(frac, T.GREEN if frac >= 1 else T.AMBER,
+                                 target=1.0)
         self.target_pct.setText(f"{frac * 100:.0f}%")
         self.target_in.setValue(target)
         self.weekly_in.setValue(doc.get("weekly_budget", 0))
@@ -845,7 +962,6 @@ class GoalsPage(QWidget):
             self.goals_box.addLayout(self._goal_row(g, cur, avg_pnl, all_leaves))
 
     def _goal_row(self, g, cur, avg_pnl=0.0, all_leaves=None):
-        import math
         from datetime import date as _dt
         frac = (g["saved"] / g["target"]) if g["target"] > 0 else 0.0
         done = frac >= 1
@@ -890,21 +1006,27 @@ class GoalsPage(QWidget):
             box.addLayout(chip_row)
 
         if not done:
-            remaining = g["target"] - g["saved"]
             monthly_contrib = (sum(leaf_map.get(n, 0) for n in linked)
                                if linked else max(0.0, avg_pnl))
-            if monthly_contrib > 0:
-                months_needed = math.ceil(remaining / monthly_contrib)
-                today_d = _dt.today()
-                total_m = today_d.month - 1 + months_needed
-                est_yr  = today_d.year + total_m // 12
-                est_mo  = total_m % 12 + 1
+            eta = B.goal_eta(g["saved"], g["target"], monthly_contrib, _dt.today())
+            if eta["months"]:
                 src = (f"linked {money(monthly_contrib, cur)}/mo"
                        if linked else f"avg {money(monthly_contrib, cur)}/mo")
-                proj = f"~{months_needed} mo  ·  est. {dm.MONTH_ABBR[est_mo]} {est_yr}  ({src})"
+                proj = (f"on track by {dm.MONTH_ABBR[eta['month']]} {eta['year']}"
+                        f"  ·  ~{eta['months']} mo  ({src})")
+                box.addWidget(label(proj, T.TEXT_DIM, 10))
+                if len(eta["projection"]) > 1:
+                    chart = LineChart()
+                    chart.setFixedHeight(96)
+                    chart.setCursor(Qt.CursorShape.ArrowCursor)
+                    chart.set_series(eta["projection"], target=g["target"],
+                                     fill=True, highlight_last=False,
+                                     currency=cur, color=T.SERIES[1])
+                    box.addWidget(chart)
             else:
-                proj = "Link an expense or build savings history to project completion"
-            box.addWidget(label(proj, T.TEXT_DIM, 10))
+                box.addWidget(label(
+                    "Link an expense or build savings history to project completion",
+                    T.TEXT_DIM, 10))
 
         return box
 
@@ -1890,6 +2012,36 @@ class SubscriptionsPage(QWidget):
                            T.AMBER if owed > 0 else T.GREEN)
         self.blay.addLayout(trow)
 
+        # month calendar — daily spend shading + due / income dots
+        hm_card, hml = card()
+        hml.addWidget(label(
+            f"Spending & due dates — {dm.MONTH_NAMES[self.month]} {self.year}",
+            T.TEXT_MUTED, 12))
+        heatmap = CalendarHeatmap()
+        spend = B.daily_spend(self.dm.transactions(), self.year, self.month)
+        due_days: dict[int, list[str]] = {}
+        income_days: set[int] = set()
+        for inst in B.instances_in_range(self.dm.items(), rs, re_):
+            day = inst["occ_date"].day
+            if inst["type"] == "income":
+                income_days.add(day)
+            elif not inst.get("paid"):
+                due_days.setdefault(day, []).append(inst["name"])
+        heatmap.set_month(self.year, self.month, spend, due_days,
+                          income_days, today=date.today(), currency=cur)
+        hml.addWidget(heatmap)
+        self.blay.addWidget(hm_card)
+
+        # renewal timeline — next 60 days
+        upcoming = B.upcoming_renewals(self.dm.items(), date.today(), days=60)
+        if upcoming:
+            tl_card, tll = card()
+            tll.addWidget(label("Renewal timeline — next 60 days", T.TEXT_MUTED, 12))
+            timeline = SubscriptionTimeline()
+            timeline.set_data(upcoming, days=60, currency=cur)
+            tll.addWidget(timeline)
+            self.blay.addWidget(tl_card)
+
         # B1 — renewing soon
         renewals = B.upcoming_renewals(self.dm.items(), date.today(), days=14)
         if renewals:
@@ -2223,6 +2375,18 @@ class SubscriptionsPage(QWidget):
                            T.AMBER if total_owed > 0 else T.GREEN)
         self.blay.addLayout(trow)
 
+        # who-owes-what signed bars (green owed to you, red you owe)
+        owe_rows = [(p["name"], roster[p["name"]]["owes"])
+                    for p in people if p["name"] in roster
+                    and abs(roster[p["name"]]["owes"]) > 0.001]
+        if owe_rows:
+            wc, wl = card()
+            wl.addWidget(label("Balances — who owes what", T.TEXT_MUTED, 12))
+            bar = WhoOwesBar()
+            bar.set_data(sorted(owe_rows, key=lambda r: -r[1]), cur)
+            wl.addWidget(bar)
+            self.blay.addWidget(wc)
+
         for person in people:
             name = person["name"]
             info = roster.get(name)
@@ -2305,6 +2469,7 @@ class MainWindow(QMainWindow):
         self.dm = dm.ItemStore()
         self.dm.load()                       # migrate month files → flat store on first run
         self.today = date.today()
+        self.dm.snapshot_net_worth(self.today)   # record daily net-worth point
         self._first_run = False              # store seeds itself; onboarding deferred
         self.anchor = self.today             # the date whose lens-window is shown
         self.lens = self.dm.time_lens()      # "iso_week" (default) | "monday_in_month" | "month"
@@ -2582,6 +2747,10 @@ def main():
     _register_fonts()
     app.setStyleSheet(T.global_qss())
     app.setFont(QFont(T.FONT_FAMILY, 10))
+
+    if "--shot" in args:
+        import widgets
+        widgets.ANIMATE = False       # deterministic, fully-revealed charts for capture
 
     win = MainWindow()
 

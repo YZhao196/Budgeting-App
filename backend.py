@@ -8,6 +8,7 @@ the multi-month history that feeds the dashboard chart.
 from __future__ import annotations
 
 import calendar as _cal
+import math
 import re as _re
 from datetime import date, timedelta
 
@@ -153,6 +154,33 @@ def pnl(doc: dict) -> float:
 def savings_rate(doc: dict) -> float:
     inc = income_total(doc)
     return (pnl(doc) / inc) if inc else 0.0
+
+
+def goal_eta(saved: float, target: float, monthly_contrib: float,
+             today: date) -> dict:
+    """Project when a savings goal is reached at the given monthly contribution.
+    {done, months, year, month, monthly, projection: [(label, value), …]}."""
+    saved, target = float(saved), float(target)
+    if saved >= target > 0:
+        return {"done": True, "months": 0, "year": today.year,
+                "month": today.month, "monthly": monthly_contrib,
+                "projection": [(dm.MONTH_ABBR[today.month], saved)]}
+    if monthly_contrib <= 0 or target <= 0:
+        return {"done": False, "months": None, "year": None, "month": None,
+                "monthly": monthly_contrib, "projection": []}
+
+    remaining = target - saved
+    months = math.ceil(remaining / monthly_contrib)
+    idx = today.year * 12 + (today.month - 1) + months
+    est_y, est_m = idx // 12, idx % 12 + 1
+
+    projection, bal = [], saved
+    for i in range(min(months, 12) + 1):
+        mi = today.year * 12 + (today.month - 1) + i
+        projection.append((dm.MONTH_ABBR[mi % 12 + 1],
+                           min(target, saved + monthly_contrib * i)))
+    return {"done": False, "months": months, "year": est_y, "month": est_m,
+            "monthly": monthly_contrib, "projection": projection}
 
 
 # --------------------------------------------------------------------------- #
@@ -799,6 +827,91 @@ def forecast(items: list, start_balance: float, today: date,
     return out
 
 
+def forecast_band(items: list, start_balance: float, today: date,
+                  months: int = 6) -> list[dict]:
+    """``forecast`` plus an uncertainty band that widens with time.  The band
+    half-width grows as ``vol · √month`` where ``vol`` is a quarter of the mean
+    absolute monthly P&L — a simple stand-in for spending variability.
+    [{label, year, month, median, lo, hi}]."""
+    base = forecast(items, start_balance, today, months)
+    if not base:
+        return []
+    vol = 0.25 * (sum(abs(r["pnl"]) for r in base) / len(base))
+    out = []
+    for i, r in enumerate(base, start=1):
+        spread = vol * math.sqrt(i)
+        out.append({"label": r["label"], "year": r["year"], "month": r["month"],
+                    "median": r["balance"],
+                    "lo": r["balance"] - spread, "hi": r["balance"] + spread})
+    return out
+
+
+def cashflow_links(items: list, year: int, month: int, top: int = 7) -> dict:
+    """Monthly cash-flow for a sankey: income sources feed a central 'Cash'
+    node, which feeds expense categories (biggest ``top``, rest folded to
+    'Other') plus 'Savings' when income exceeds spend.
+    {income: [(name, amt)], outflows: [(name, amt)], cash: total_in}."""
+    last = _cal.monthrange(year, month)[1]
+    rs, re = date(year, month, 1), date(year, month, last)
+
+    income = [(defn.get("name"), totals_in_range([defn], rs, re)["income"])
+              for defn in items if defn.get("type") == "income"]
+    income = sorted([(n, a) for n, a in income if a > 0], key=lambda t: -t[1])
+
+    expenses = [(defn.get("name"), totals_in_range([defn], rs, re)["expenses"])
+                for defn in items if defn.get("type") == "expense"]
+    expenses = sorted([(n, a) for n, a in expenses if a > 0], key=lambda t: -t[1])
+    if len(expenses) > top:
+        head, tail = expenses[:top], expenses[top:]
+        head.append(("Other", sum(a for _, a in tail)))
+        expenses = head
+
+    total_in = sum(a for _, a in income)
+    total_out = sum(a for _, a in expenses)
+    outflows = list(expenses)
+    if total_in > total_out:
+        outflows.append(("Savings", total_in - total_out))
+    return {"income": income, "outflows": outflows, "cash": total_in}
+
+
+def net_worth_series(items: list, accounts: list, today: date,
+                     snapshots: list | None = None, months: int = 6) -> list[dict]:
+    """Net-worth history for the area chart.  Uses real dated ``snapshots`` when
+    at least two exist; otherwise reconstructs a plausible trajectory by walking
+    the current net worth backward through each past month's recurring P&L
+    (liabilities held at today's level).  [{label, assets, liabilities, net}]."""
+    snaps = [s for s in (snapshots or []) if s.get("date")]
+    if len(snaps) >= 2:
+        snaps = sorted(snaps, key=lambda s: s["date"])[-months:]
+        out = []
+        for s in snaps:
+            d = _parse_iso(s["date"])
+            out.append({"label": dm.MONTH_ABBR[d.month] if d else "",
+                        "assets": float(s.get("assets", 0.0)),
+                        "liabilities": float(s.get("liabilities", 0.0)),
+                        "net": float(s.get("assets", 0.0)) - float(s.get("liabilities", 0.0))})
+        return out
+
+    nw = net_worth(accounts)
+    liab = nw["liabilities"]
+    net_now = nw["net"]
+    # P&L for each of the last ``months`` months (index 0 = oldest).
+    seq = []
+    for back in range(months - 1, -1, -1):
+        y, m = _step_back(today.year, today.month, back)
+        last = _cal.monthrange(y, m)[1]
+        pnl_m = totals_in_range(items, date(y, m, 1), date(y, m, last))["pnl"]
+        seq.append((dm.MONTH_ABBR[m], pnl_m))
+    # Net at the end of each past month, reconstructed from today backward.
+    nets = [0.0] * months
+    running = net_now
+    for i in range(months - 1, -1, -1):
+        nets[i] = running
+        running -= seq[i][1]        # step to the prior month-end
+    return [{"label": seq[i][0], "assets": nets[i] + liab,
+             "liabilities": liab, "net": nets[i]} for i in range(months)]
+
+
 def monthly_equiv(amount: float, recurrence: dict | None) -> float:
     """Normalise a recurring amount to a per-month figure (for cross-cadence totals)."""
     if not recurrence or recurrence.get("type") != "interval":
@@ -1043,6 +1156,54 @@ def budget_report(items: list, transactions: list, year: int, month: int) -> dic
         tot_actual += amt
 
     return {"rows": rows, "ideal": tot_ideal, "actual": tot_actual, "has_txn": has_txn}
+
+
+def daily_spend(transactions: list, year: int, month: int) -> dict:
+    """Spend (money out) per day-of-month from imported bank transactions."""
+    res: dict = {}
+    for t in transactions:
+        d = _parse_iso(t.get("date"))
+        if not d or d.year != year or d.month != month:
+            continue
+        amt = float(t.get("amount", 0.0))
+        if amt >= 0:
+            continue
+        res[d.day] = res.get(d.day, 0.0) + (-amt)
+    return res
+
+
+def category_series(items: list, year: int, month: int,
+                    count: int = 6, top: int = 7) -> dict:
+    """Per-month expense totals for each top-level category over the ``count``
+    months ending at (year, month).  Categories beyond the ``top`` biggest are
+    folded into 'Other'.  Returns {labels, categories, matrix} with
+    matrix[month_idx][cat_idx]."""
+    months = [_step_back(year, month, back) for back in range(count - 1, -1, -1)]
+    labels = [dm.MONTH_ABBR[m] for _, m in months]
+
+    series: list[tuple[str, list[float]]] = []
+    for defn in items:
+        if defn.get("type") != "expense":
+            continue
+        row = []
+        for y, m in months:
+            last = _cal.monthrange(y, m)[1]
+            row.append(totals_in_range([defn], date(y, m, 1),
+                                       date(y, m, last))["expenses"])
+        if any(v > 0 for v in row):
+            series.append((defn.get("name"), row))
+
+    series.sort(key=lambda s: -sum(s[1]))
+    if len(series) > top:
+        head, tail = series[:top], series[top:]
+        other = [sum(vs) for vs in zip(*(r for _, r in tail))]
+        head.append(("Other", list(other)))
+        series = head
+
+    return {"labels": labels,
+            "categories": [n for n, _ in series],
+            "matrix": [[row[mi] for _, row in series]
+                       for mi in range(len(months))]}
 
 
 def leaf_breakdown(doc: dict, key: str = "income") -> list[tuple[str, float]]:

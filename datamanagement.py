@@ -824,6 +824,23 @@ class ItemStore:
             accs.remove(a)
             self.save()
 
+    # -- net-worth history (point-in-time snapshots) ---------------------- #
+    def networth_history(self) -> list:
+        return self.load().setdefault("networth_history", [])
+
+    def snapshot_net_worth(self, today) -> None:
+        """Record today's assets / liabilities once per day so the net-worth
+        area chart accumulates real history over time."""
+        import backend as B
+        hist = self.networth_history()
+        stamp = today.isoformat()
+        if hist and hist[-1].get("date") == stamp:
+            return
+        nw = B.net_worth(self.accounts())
+        hist.append({"date": stamp, "assets": nw["assets"],
+                     "liabilities": nw["liabilities"]})
+        self.save()
+
     def set_tags(self, def_id: str, tags: list) -> None:
         defn = self._find_def(def_id)
         if defn is not None:
