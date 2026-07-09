@@ -11,7 +11,8 @@ import math
 import re
 from datetime import date
 
-from PyQt6.QtCore import QDate, QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QRectF, QSize, Qt,
+                          QTimer, QVariantAnimation, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QIcon,
                          QLinearGradient, QPainter, QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (
@@ -39,6 +40,28 @@ INDENT   = 16
 PAD_L    = 14
 PAD_R    = 10
 ROW_H    = 32
+
+# Entry-reveal animations (disabled in headless --shot mode).
+ANIMATE = True
+
+
+def _reveal_anim(widget):
+    """Return a 0→1 QVariantAnimation that repaints ``widget`` each tick, or
+    None when animation is disabled (headless).  Widgets read ``_reveal``."""
+    if not ANIMATE:
+        widget._reveal = 1.0
+        return None
+    anim = QVariantAnimation(widget)
+    anim.setStartValue(0.0); anim.setEndValue(1.0)
+    anim.setDuration(340)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _tick(v):
+        widget._reveal = float(v)
+        widget.update()
+    anim.valueChanged.connect(_tick)
+    return anim
+
 
 # Manually-set priority -> dot colour (0 = none)
 PRIO_COLORS = {0: None, 1: T.DOT_OVERDUE, 2: T.DOT_SOON, 3: T.DOT_OK}
@@ -2429,6 +2452,8 @@ class PnLChart(QWidget):
 
     def paintEvent(self, e):
         if not self.data:
+            p = QPainter(self)
+            draw_empty(p, self.rect(), "No months recorded yet")
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -2443,19 +2468,7 @@ class PnLChart(QWidget):
         def y_of(v):
             return plot.bottom() - (v - bot) / (top - bot) * plot.height()
 
-        # gridlines + y labels
-        grid_pen = QPen(QColor(T.BORDER_SOFT), 1)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
-        tick = bot
-        while tick <= top + 1e-6:
-            y = y_of(tick)
-            p.setPen(grid_pen)
-            p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
-            p.setPen(QColor(T.TEXT_DIM))
-            p.drawText(QRectF(0, y - 7, pad_l - 6, 14),
-                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                       _tick_label(tick, self.currency))
-            tick += step
+        draw_axis(p, plot, bot, top, step, self.currency)
 
         n = len(self.data)
         xs = [plot.left() + (plot.width() * (i / (n - 1)) if n > 1 else plot.width()/2)
@@ -2622,6 +2635,1011 @@ def _tick_label(v, currency):
     return f"{currency}{int(v)}"
 
 
+def draw_axis(p, plot, bot, top, step, currency):
+    """Horizontal gridlines + right-aligned tick labels in the left gutter."""
+    grid_pen = QPen(QColor(T.BORDER_SOFT), 1)
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
+    tick = bot
+    while tick <= top + 1e-6:
+        y = plot.bottom() - (tick - bot) / (top - bot) * plot.height()
+        p.setPen(grid_pen)
+        p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
+        p.setPen(QColor(T.TEXT_DIM))
+        p.drawText(QRectF(0, y - 7, plot.left() - 6, 14),
+                   int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                   _tick_label(tick, currency))
+        tick += step
+
+
+def draw_hover_pill(p, plot, x, y, lines):
+    """Multi-line hover tooltip. ``lines`` = [(text, color, bold), …]; the pill
+    is anchored above (x, y) and clamped inside ``plot``."""
+    if not lines:
+        return
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(10)
+    fb = QFont(T.FONT_FAMILY); fb.setPixelSize(10); fb.setBold(True)
+    fm, fmb = QFontMetrics(f), QFontMetrics(fb)
+    tw = max((fmb if b else fm).horizontalAdvance(t) for t, _, b in lines) + 16
+    lh = 15
+    th = lh * len(lines) + 7
+    bx = min(max(x - tw / 2, plot.left()), plot.right() - tw)
+    by = y - th - 9
+    if by < plot.top():
+        by = y + 9
+    p.setBrush(QColor(T.BG_CARD_SOFT)); p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
+    p.drawRect(QRectF(bx, by, tw, th))
+    ty = by + 4
+    for text, color, bold in lines:
+        p.setFont(fb if bold else f)
+        p.setPen(QColor(color))
+        p.drawText(QRectF(bx, ty, tw, lh), int(Qt.AlignmentFlag.AlignCenter), text)
+        ty += lh
+
+
+def draw_empty(p, rect, msg):
+    """Dim centred placeholder for charts with nothing to show."""
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(11); p.setFont(f)
+    p.setPen(QColor(T.TEXT_DIM))
+    p.drawText(QRectF(rect), int(Qt.AlignmentFlag.AlignCenter), msg)
+
+
+class _ChartLegendRow(QWidget):
+    entered = pyqtSignal(int)
+    left = pyqtSignal()
+
+    def __init__(self, idx, color, name, value):
+        super().__init__()
+        self.idx = idx
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(8)
+        c = QFrame(); c.setFixedSize(9, 9)
+        c.setStyleSheet(f"background:{color};")
+        lay.addWidget(c)
+        self._name = label(name, T.TEXT_MUTED, 11)
+        lay.addWidget(self._name)
+        lay.addStretch(1)
+        if value:
+            lay.addWidget(label(value, T.TEXT, 11))
+
+    def set_active(self, on):
+        self._name.setStyleSheet(
+            f"color:{T.TEXT if on else T.TEXT_MUTED}; background:transparent;")
+
+    def enterEvent(self, e):
+        self.entered.emit(self.idx)
+
+    def leaveEvent(self, e):
+        self.left.emit()
+
+
+class ChartLegend(QWidget):
+    """Colour-chip legend rows, two-way hover synced with a chart."""
+    hovered = pyqtSignal(int)   # row index; -1 = none
+
+    def __init__(self):
+        super().__init__()
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(0, 0, 0, 0); self._lay.setSpacing(1)
+        self._rows: list[_ChartLegendRow] = []
+
+    def set_rows(self, rows):
+        """rows = [(color, name, value_str), …]"""
+        while self._lay.count():
+            it = self._lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        self._rows = []
+        for i, (color, name, value) in enumerate(rows):
+            r = _ChartLegendRow(i, color, name, value)
+            r.entered.connect(self._enter)
+            r.left.connect(lambda: self._enter(-1))
+            self._lay.addWidget(r)
+            self._rows.append(r)
+
+    def _enter(self, idx):
+        self.set_hover(idx)
+        self.hovered.emit(idx)
+
+    def set_hover(self, idx):
+        for i, r in enumerate(self._rows):
+            r.set_active(i == idx)
+
+
+class Sparkline(QWidget):
+    """Tiny axis-free trend line with a soft gradient fill and last-point dot."""
+
+    def __init__(self, color=T.GREEN, height=34):
+        super().__init__()
+        self._values: list[float] = []
+        self._color = color
+        self.setFixedHeight(height)
+
+    def set_values(self, values, color=None):
+        self._values = [float(v) for v in values]
+        if color:
+            self._color = color
+        self.update()
+
+    def paintEvent(self, e):
+        if len(self._values) < 2:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        lo, hi = min(self._values), max(self._values)
+        if hi == lo:
+            hi += 1.0
+        n = len(self._values)
+        pad = 3.0
+        xs = [pad + (w - 2 * pad) * i / (n - 1) for i in range(n)]
+        ys = [h - pad - (v - lo) / (hi - lo) * (h - 2 * pad)
+              for v in self._values]
+        pts = [QPointF(xs[i], ys[i]) for i in range(n)]
+
+        grad = QLinearGradient(0, 0, 0, h)
+        c = QColor(self._color); c.setAlpha(60); grad.setColorAt(0, c)
+        c2 = QColor(self._color); c2.setAlpha(0); grad.setColorAt(1, c2)
+        path = QPainterPath(QPointF(xs[0], h - pad))
+        for pt in pts:
+            path.lineTo(pt)
+        path.lineTo(QPointF(xs[-1], h - pad))
+        path.closeSubpath()
+        p.fillPath(path, QBrush(grad))
+
+        pen = QPen(QColor(self._color), 1.4)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        for i in range(n - 1):
+            p.drawLine(pts[i], pts[i + 1])
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(self._color))
+        p.drawEllipse(pts[-1], 2.4, 2.4)
+
+
+class GroupedBarChart(QWidget):
+    """Budget vs actual as horizontal bullet rows: hollow track = budget,
+    filled bar = actual (green under / amber near / red over, with an overrun
+    tail past the budget tick)."""
+    hovered = pyqtSignal(int)   # row index; -1 = none
+
+    ROW_H = 28
+    LABEL_W = 118
+    VALUE_W = 118
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[tuple[str, float, float]] = []   # (name, budget, actual)
+        self.currency = "$"
+        self._hover = -1
+        self._reveal = 1.0
+        self._anim = None
+        self.setMouseTracking(True)
+        self.setMinimumHeight(self.ROW_H + 8)
+
+    def set_data(self, rows, currency="$"):
+        self.rows = rows
+        self.currency = currency
+        self._hover = -1
+        self.setFixedHeight(max(1, len(rows)) * self.ROW_H + 8)
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
+        self.update()
+
+    def _row_at(self, y):
+        idx = int((y - 4) // self.ROW_H)
+        return idx if 0 <= idx < len(self.rows) else -1
+
+    def mouseMoveEvent(self, e):
+        idx = self._row_at(e.position().y())
+        if idx != self._hover:
+            self._hover = idx
+            self.hovered.emit(idx)
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != -1:
+            self._hover = -1
+            self.hovered.emit(-1)
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.rows:
+            draw_empty(p, self.rect(), "No budgeted categories yet")
+            return
+        maxv = max(max(b, a) for _, b, a in self.rows) or 1.0
+        bar_x = self.LABEL_W
+        bar_w = max(10.0, self.width() - self.LABEL_W - self.VALUE_W)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(11)
+        fs = QFont(T.FONT_FAMILY); fs.setPixelSize(10)
+
+        for i, (name, budget, actual) in enumerate(self.rows):
+            y0 = 4 + i * self.ROW_H
+            cy = y0 + self.ROW_H / 2
+            if i == self._hover:
+                p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.BG_HOVER))
+                p.drawRect(QRectF(0, y0, self.width(), self.ROW_H))
+
+            # category label
+            p.setFont(f)
+            p.setPen(QColor(T.TEXT if i == self._hover else T.TEXT_MUTED))
+            p.drawText(QRectF(0, y0, self.LABEL_W - 10, self.ROW_H),
+                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                       name if len(name) <= 16 else name[:15] + "…")
+
+            bw_budget = budget / maxv * bar_w
+            bw_actual = actual / maxv * bar_w * self._reveal
+
+            # hollow budget track
+            if budget > 0:
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
+                p.drawRect(QRectF(bar_x, cy - 5, bw_budget, 10))
+
+            # actual fill (colour by pace)
+            if actual > 0:
+                ratio = actual / budget if budget else 2.0
+                col = (T.GREEN if ratio < 0.85
+                       else T.AMBER if ratio <= 1.0 else T.RED)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QColor(col))
+                p.drawRect(QRectF(bar_x, cy - 5,
+                                  min(bw_actual, bw_budget) if budget else bw_actual, 10))
+                if budget and bw_actual > bw_budget:      # overrun tail
+                    tail = QColor(T.RED); tail.setAlpha(160)
+                    p.setBrush(tail)
+                    p.drawRect(QRectF(bar_x + bw_budget, cy - 5,
+                                      bw_actual - bw_budget, 10))
+
+            # budget tick
+            if budget > 0:
+                p.setPen(QPen(QColor(T.AMBER), 1.4))
+                p.drawLine(QPointF(bar_x + bw_budget, cy - 8),
+                           QPointF(bar_x + bw_budget, cy + 8))
+
+            # value text
+            p.setFont(fs)
+            p.setPen(QColor(T.TEXT if i == self._hover else T.TEXT_DIM))
+            pct = f"  ({actual / budget * 100:.0f}%)" if budget else ""
+            p.drawText(QRectF(self.width() - self.VALUE_W + 6, y0,
+                              self.VALUE_W - 8, self.ROW_H),
+                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                       f"{money(actual, self.currency, signed=False)} / "
+                       f"{money(budget, self.currency, signed=False)}{pct}")
+
+
+class StackedBarChart(QWidget):
+    """Monthly expense composition as stacked vertical bars, one segment per
+    category (T.SERIES colours), with per-segment hover."""
+    hovered = pyqtSignal(int, int)   # (month_idx, cat_idx); (-1, -1) = none
+
+    def __init__(self):
+        super().__init__()
+        self.labels: list[str] = []
+        self.categories: list[str] = []
+        self.matrix: list[list[float]] = []     # matrix[m][c]
+        self.colors: list[str] = []
+        self.currency = "$"
+        self._geo = []                          # [(QRectF, m, c)]
+        self._hover = (-1, -1)
+        self._hover_cat = -1                    # legend-driven highlight
+        self._reveal = 1.0
+        self._anim = None
+        self.setMouseTracking(True)
+        self.setMinimumHeight(200)
+
+    def set_data(self, labels, categories, matrix, colors=None, currency="$"):
+        self.labels = labels
+        self.categories = categories
+        self.matrix = matrix
+        self.colors = colors or [T.SERIES[i % len(T.SERIES)]
+                                 for i in range(len(categories))]
+        self.currency = currency
+        self._hover = (-1, -1)
+        self._hover_cat = -1
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
+        self.update()
+
+    def set_hover_cat(self, cat_idx: int):
+        if cat_idx != self._hover_cat:
+            self._hover_cat = cat_idx
+            self.update()
+
+    def mouseMoveEvent(self, e):
+        pos = e.position()
+        hit = (-1, -1)
+        for rect, m, c in self._geo:
+            if rect.contains(pos):
+                hit = (m, c)
+                break
+        if hit != self._hover:
+            self._hover = hit
+            self.hovered.emit(*hit)
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != (-1, -1):
+            self._hover = (-1, -1)
+            self.hovered.emit(-1, -1)
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        totals = [sum(row) for row in self.matrix]
+        if not self.matrix or not any(totals):
+            draw_empty(p, self.rect(), "No expenses in this period")
+            return
+        pad_l, pad_r, pad_t, pad_b = 44, 14, 12, 24
+        plot = QRectF(pad_l, pad_t, self.width() - pad_l - pad_r,
+                      self.height() - pad_t - pad_b)
+        bot, top, step = _axis(totals)
+        bot = 0.0
+        draw_axis(p, plot, bot, top, step, self.currency)
+
+        def y_of(v):
+            return plot.bottom() - (v - bot) / (top - bot) * plot.height()
+
+        n = len(self.matrix)
+        slot = plot.width() / n
+        bw = slot * 0.56
+        self._geo = []
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9)
+        for m, row in enumerate(self.matrix):
+            x = plot.left() + slot * m + (slot - bw) / 2
+            acc = 0.0
+            for c, v in enumerate(row):
+                if v <= 0:
+                    continue
+                y1, y0 = y_of(acc * self._reveal), y_of((acc + v) * self._reveal)
+                rect = QRectF(x, y0, bw, y1 - y0)
+                col = QColor(self.colors[c % len(self.colors)])
+                if (m, c) == self._hover or c == self._hover_cat:
+                    col = col.lighter(130)
+                elif self._hover_cat != -1 or self._hover != (-1, -1):
+                    col.setAlpha(120)
+                p.setPen(Qt.PenStyle.NoPen); p.setBrush(col)
+                p.drawRect(rect)
+                self._geo.append((rect, m, c))
+                acc += v
+            p.setFont(f2)
+            p.setPen(QColor(T.TEXT if m == n - 1 else T.TEXT_DIM))
+            p.drawText(QRectF(plot.left() + slot * m, plot.bottom() + 5, slot, 14),
+                       int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+                       self.labels[m] if m < len(self.labels) else "")
+
+        hm, hc = self._hover
+        if hm >= 0:
+            v = self.matrix[hm][hc]
+            tot = totals[hm] or 1.0
+            rect = next(r for r, m, c in self._geo if (m, c) == (hm, hc))
+            draw_hover_pill(
+                p, plot, rect.center().x(), rect.top(),
+                [(self.categories[hc], T.TEXT_MUTED, False),
+                 (f"{money(v, self.currency, signed=False)}  ·  "
+                  f"{v / tot * 100:.0f}%", T.TEXT, True)])
+
+
+class CalendarHeatmap(QWidget):
+    """Month grid: cell shade = spend that day (bank transactions), amber dot =
+    bill due, green dot = income lands, ring = today."""
+    day_clicked = pyqtSignal(object)   # datetime.date
+
+    def __init__(self):
+        super().__init__()
+        self.year = self.month = 0
+        self.spend: dict[int, float] = {}
+        self.due_days: dict[int, list[str]] = {}
+        self.income_days: set[int] = set()
+        self.today = None
+        self.currency = "$"
+        self._hover = -1        # day number, -1 = none
+        self._cells: list[tuple[QRectF, int]] = []
+        self.setMouseTracking(True)
+        self.setMinimumHeight(230)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_month(self, year, month, spend, due_days, income_days,
+                  today=None, currency="$"):
+        self.year, self.month = year, month
+        self.spend = spend
+        self.due_days = due_days
+        self.income_days = income_days
+        self.today = today
+        self.currency = currency
+        self._hover = -1
+        self.update()
+
+    def _day_at(self, pos):
+        for rect, day in self._cells:
+            if rect.contains(pos):
+                return day
+        return -1
+
+    def mouseMoveEvent(self, e):
+        d = self._day_at(e.position())
+        if d != self._hover:
+            self._hover = d
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != -1:
+            self._hover = -1
+            self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            d = self._day_at(e.position())
+            if d > 0:
+                self.day_clicked.emit(date(self.year, self.month, d))
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.year:
+            draw_empty(p, self.rect(), "No month selected")
+            return
+        import calendar as _cal
+        first_wd, n_days = _cal.monthrange(self.year, self.month)   # Mon = 0
+        n_weeks = math.ceil((first_wd + n_days) / 7)
+
+        pad = 4
+        head_h = 16
+        gap = 3
+        cw = (self.width() - 2 * pad - gap * 6) / 7
+        ch = (self.height() - 2 * pad - head_h - gap * (n_weeks - 1)) / n_weeks
+
+        f9 = QFont(T.FONT_FAMILY); f9.setPixelSize(9)
+        p.setFont(f9); p.setPen(QColor(T.TEXT_DIM))
+        for i, wd in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
+            p.drawText(QRectF(pad + i * (cw + gap), pad, cw, head_h - 2),
+                       int(Qt.AlignmentFlag.AlignCenter), wd)
+
+        vmax = max(self.spend.values(), default=0.0) or 1.0
+        self._cells = []
+        for day in range(1, n_days + 1):
+            slot = first_wd + day - 1
+            r, c = divmod(slot, 7)
+            rect = QRectF(pad + c * (cw + gap), pad + head_h + r * (ch + gap),
+                          cw, ch)
+            self._cells.append((rect, day))
+
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(T.BG_CARD_SOFT))
+            p.drawRect(rect)
+            amt = self.spend.get(day, 0.0)
+            if amt > 0:
+                fill = QColor(T.RED)
+                fill.setAlpha(int(35 + 170 * min(1.0, amt / vmax)))
+                p.setBrush(fill)
+                p.drawRect(rect)
+            if day == self._hover:
+                hl = QColor(T.BG_HOVER); hl.setAlpha(120)
+                p.setBrush(hl); p.drawRect(rect)
+
+            # day number
+            p.setFont(f9)
+            p.setPen(QColor(T.TEXT_MUTED))
+            p.drawText(rect.adjusted(4, 2, -2, 0),
+                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
+                       str(day))
+
+            # due / income dots (bottom-right corner)
+            dx = rect.right() - 7
+            p.setPen(Qt.PenStyle.NoPen)
+            if day in self.due_days:
+                p.setBrush(QColor(T.AMBER))
+                p.drawEllipse(QPointF(dx, rect.bottom() - 6), 2.4, 2.4)
+                dx -= 7
+            if day in self.income_days:
+                p.setBrush(QColor(T.GREEN))
+                p.drawEllipse(QPointF(dx, rect.bottom() - 6), 2.4, 2.4)
+
+            # today ring
+            if (self.today and self.today.year == self.year
+                    and self.today.month == self.month and self.today.day == day):
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(QColor(T.GREEN), 1.4))
+                p.drawRect(rect.adjusted(0.7, 0.7, -0.7, -0.7))
+
+        if self._hover > 0:
+            rect = next(r for r, d in self._cells if d == self._hover)
+            amt = self.spend.get(self._hover, 0.0)
+            lines = [(date(self.year, self.month, self._hover).strftime("%a %d %b"),
+                      T.TEXT_MUTED, False),
+                     (money(amt, self.currency, signed=False) + " spent",
+                      T.RED if amt else T.TEXT_DIM, True)]
+            for nm in self.due_days.get(self._hover, [])[:3]:
+                lines.append((f"due: {nm}", T.AMBER, False))
+            draw_hover_pill(p, QRectF(self.rect()), rect.center().x(), rect.top(),
+                            lines)
+
+
+class FanChart(QWidget):
+    """Liquid-balance forecast: solid history, dashed median projection, a
+    translucent uncertainty band, red shading below zero and an amber zero
+    line."""
+
+    def __init__(self):
+        super().__init__()
+        self.history: list[tuple[str, float]] = []
+        self.band: list[dict] = []          # [{label, median, lo, hi}]
+        self.currency = "$"
+        self._geo = []                      # [(x, y, label, value, lo, hi)]
+        self._hover = None
+        self.setMouseTracking(True)
+        self.setMinimumHeight(180)
+
+    def set_data(self, history, band, currency="$"):
+        self.history = history
+        self.band = band
+        self.currency = currency
+        self._hover = None
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        if not self._geo:
+            return
+        x = e.position().x()
+        idx = min(range(len(self._geo)), key=lambda i: abs(self._geo[i][0] - x))
+        if idx != self._hover:
+            self._hover = idx
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover is not None:
+            self._hover = None
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.history and not self.band:
+            draw_empty(p, self.rect(), "No accounts to forecast — add one in Settings")
+            return
+        pad_l, pad_r, pad_t, pad_b = 44, 14, 12, 24
+        plot = QRectF(pad_l, pad_t, self.width() - pad_l - pad_r,
+                      self.height() - pad_t - pad_b)
+
+        hvals = [v for _, v in self.history]
+        bvals = ([b["hi"] for b in self.band] + [b["lo"] for b in self.band]
+                 + [b["median"] for b in self.band])
+        bot, top, step = _axis(hvals + bvals)
+        draw_axis(p, plot, bot, top, step, self.currency)
+
+        def y_of(v):
+            return plot.bottom() - (v - bot) / (top - bot) * plot.height()
+
+        n = len(self.history) + len(self.band)
+        xs = [plot.left() + (plot.width() * i / (n - 1) if n > 1 else plot.width() / 2)
+              for i in range(n)]
+
+        # zero line
+        if bot < 0 < top:
+            zp = QPen(QColor(T.AMBER), 1.0, Qt.PenStyle.DotLine); p.setPen(zp)
+            p.drawLine(QPointF(plot.left(), y_of(0)), QPointF(plot.right(), y_of(0)))
+
+        nh = len(self.history)
+        hist_pts = [QPointF(xs[i], y_of(hvals[i])) for i in range(nh)]
+
+        # forecast band polygon (starts at the last history point)
+        if self.band:
+            join_x = xs[nh - 1] if nh else xs[0]
+            join_y = y_of(hvals[-1]) if nh else y_of(self.band[0]["median"])
+            hi_pts = [QPointF(join_x, join_y)]
+            lo_pts = [QPointF(join_x, join_y)]
+            med_pts = [QPointF(join_x, join_y)]
+            for j, b in enumerate(self.band):
+                x = xs[nh + j]
+                hi_pts.append(QPointF(x, y_of(b["hi"])))
+                lo_pts.append(QPointF(x, y_of(b["lo"])))
+                med_pts.append(QPointF(x, y_of(b["median"])))
+            band_path = QPainterPath(hi_pts[0])
+            for pt in hi_pts[1:]:
+                band_path.lineTo(pt)
+            for pt in reversed(lo_pts):
+                band_path.lineTo(pt)
+            band_path.closeSubpath()
+            bc = QColor(T.ACCENT); bc.setAlpha(45)
+            p.fillPath(band_path, QBrush(bc))
+
+            # red shading where the band dips below zero
+            if bot < 0 < top:
+                clip = QPainterPath()
+                clip.addRect(QRectF(plot.left(), y_of(0), plot.width(),
+                                    plot.bottom() - y_of(0)))
+                p.save(); p.setClipPath(clip)
+                rc = QColor(T.RED); rc.setAlpha(70)
+                p.fillPath(band_path, QBrush(rc))
+                p.restore()
+
+            # dashed median
+            mp = QPen(QColor(T.ACCENT), 1.8, Qt.PenStyle.DashLine)
+            mp.setDashPattern([4, 3]); p.setPen(mp)
+            for i in range(len(med_pts) - 1):
+                p.drawLine(med_pts[i], med_pts[i + 1])
+
+        # solid history line
+        if nh:
+            pen = QPen(QColor(T.GREEN), 2); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            for i in range(nh - 1):
+                p.drawLine(hist_pts[i], hist_pts[i + 1])
+            p.setBrush(QColor(T.GREEN)); p.setPen(Qt.PenStyle.NoPen)
+            for pt in hist_pts:
+                p.drawEllipse(pt, 3.0, 3.0)
+
+        # x labels
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9); p.setFont(f2)
+        self._geo = []
+        for i in range(nh):
+            lab, val = self.history[i]
+            self._geo.append((xs[i], hist_pts[i].y(), lab, val, val, val))
+            p.setPen(QColor(T.TEXT_DIM))
+            p.drawText(QRectF(xs[i] - 24, plot.bottom() + 5, 48, 14),
+                       int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), lab)
+        for j, b in enumerate(self.band):
+            x = xs[nh + j]
+            self._geo.append((x, y_of(b["median"]), b["label"], b["median"],
+                              b["lo"], b["hi"]))
+            p.setPen(QColor(T.TEXT_MUTED))
+            p.drawText(QRectF(x - 24, plot.bottom() + 5, 48, 14),
+                       int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), b["label"])
+
+        if self._hover is not None and 0 <= self._hover < len(self._geo):
+            hx, hy, lab, val, lo, hi = self._geo[self._hover]
+            gp = QPen(QColor(T.BORDER_LIGHT), 1, Qt.PenStyle.DashLine)
+            gp.setDashPattern([2, 3]); p.setPen(gp)
+            p.drawLine(QPointF(hx, plot.top()), QPointF(hx, plot.bottom()))
+            lines = [(money(val, self.currency), T.TEXT, True)]
+            if hi > lo:
+                lines.append((f"{money(lo, self.currency)} – {money(hi, self.currency)}",
+                              T.TEXT_MUTED, False))
+            draw_hover_pill(p, plot, hx, hy, lines)
+
+
+class AreaChart(QWidget):
+    """Net-worth over time: assets as a green area above the baseline,
+    liabilities as a red area below it, net worth as a bright line."""
+
+    def __init__(self):
+        super().__init__()
+        self.series: list[dict] = []        # [{label, assets, liabilities, net}]
+        self.currency = "$"
+        self._geo = []
+        self._hover = None
+        self.setMouseTracking(True)
+        self.setMinimumHeight(180)
+
+    def set_data(self, series, currency="$"):
+        self.series = series
+        self.currency = currency
+        self._hover = None
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        if not self._geo:
+            return
+        x = e.position().x()
+        idx = min(range(len(self._geo)), key=lambda i: abs(self._geo[i][0] - x))
+        if idx != self._hover:
+            self._hover = idx
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover is not None:
+            self._hover = None
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.series:
+            draw_empty(p, self.rect(), "No net-worth history yet")
+            return
+        pad_l, pad_r, pad_t, pad_b = 46, 14, 12, 24
+        plot = QRectF(pad_l, pad_t, self.width() - pad_l - pad_r,
+                      self.height() - pad_t - pad_b)
+        assets = [s["assets"] for s in self.series]
+        liabs = [-s["liabilities"] for s in self.series]
+        bot, top, step = _axis(assets + liabs)
+        draw_axis(p, plot, bot, top, step, self.currency)
+
+        def y_of(v):
+            return plot.bottom() - (v - bot) / (top - bot) * plot.height()
+
+        n = len(self.series)
+        xs = [plot.left() + (plot.width() * i / (n - 1) if n > 1 else plot.width() / 2)
+              for i in range(n)]
+        base_y = y_of(0) if bot < 0 < top else plot.bottom()
+
+        def area(vals, color, alpha):
+            if n < 2:
+                return
+            grad = QLinearGradient(0, plot.top(), 0, plot.bottom())
+            c = QColor(color); c.setAlpha(alpha); grad.setColorAt(0, c)
+            c2 = QColor(color); c2.setAlpha(0); grad.setColorAt(1, c2)
+            path = QPainterPath(QPointF(xs[0], base_y))
+            for i in range(n):
+                path.lineTo(QPointF(xs[i], y_of(vals[i])))
+            path.lineTo(QPointF(xs[-1], base_y)); path.closeSubpath()
+            p.fillPath(path, QBrush(grad))
+
+        area(assets, T.GREEN, 70)
+        if any(s["liabilities"] for s in self.series):
+            # liabilities dip below the baseline (drawn from base downward)
+            grad = QLinearGradient(0, base_y, 0, plot.bottom())
+            c = QColor(T.RED); c.setAlpha(70); grad.setColorAt(0, c)
+            c2 = QColor(T.RED); c2.setAlpha(0); grad.setColorAt(1, c2)
+            path = QPainterPath(QPointF(xs[0], base_y))
+            for i in range(n):
+                path.lineTo(QPointF(xs[i], y_of(liabs[i])))
+            path.lineTo(QPointF(xs[-1], base_y)); path.closeSubpath()
+            p.fillPath(path, QBrush(grad))
+
+        # net line
+        nets = [s["net"] for s in self.series]
+        pen = QPen(QColor(T.GREEN_BRIGHT), 2); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        npts = [QPointF(xs[i], y_of(nets[i])) for i in range(n)]
+        for i in range(n - 1):
+            p.drawLine(npts[i], npts[i + 1])
+        p.setBrush(QColor(T.GREEN_BRIGHT)); p.setPen(Qt.PenStyle.NoPen)
+        for pt in npts:
+            p.drawEllipse(pt, 3.0, 3.0)
+
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9); p.setFont(f2)
+        self._geo = []
+        for i, s in enumerate(self.series):
+            self._geo.append((xs[i], npts[i].y(), s))
+            p.setPen(QColor(T.TEXT if i == n - 1 else T.TEXT_DIM))
+            p.drawText(QRectF(xs[i] - 24, plot.bottom() + 5, 48, 14),
+                       int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+                       s["label"])
+
+        if self._hover is not None and 0 <= self._hover < len(self._geo):
+            hx, hy, s = self._geo[self._hover]
+            gp = QPen(QColor(T.BORDER_LIGHT), 1, Qt.PenStyle.DashLine)
+            gp.setDashPattern([2, 3]); p.setPen(gp)
+            p.drawLine(QPointF(hx, plot.top()), QPointF(hx, plot.bottom()))
+            draw_hover_pill(p, plot, hx, hy, [
+                (f"Net {money(s['net'], self.currency)}", T.GREEN_BRIGHT, True),
+                (f"Assets {money(s['assets'], self.currency, signed=False)}", T.GREEN, False),
+                (f"Debt {money(s['liabilities'], self.currency, signed=False)}", T.RED, False)])
+
+
+class SankeyChart(QWidget):
+    """Fixed three-column monthly cash flow: income sources → Cash → outflows
+    (expense categories + Savings), links drawn as gradient ribbons."""
+
+    def __init__(self):
+        super().__init__()
+        self.income: list[tuple[str, float]] = []
+        self.outflows: list[tuple[str, float]] = []
+        self.currency = "$"
+        self._links = []        # [(QPainterPath, color, src_name, dst_name, amt)]
+        self._hover = -1
+        self.setMouseTracking(True)
+        self.setMinimumHeight(260)
+
+    def set_data(self, income, outflows, currency="$"):
+        self.income = income
+        self.outflows = outflows
+        self.currency = currency
+        self._hover = -1
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        pos = e.position()
+        hit = -1
+        for i, (path, *_rest) in enumerate(self._links):
+            if path.contains(pos):
+                hit = i
+        if hit != self._hover:
+            self._hover = hit
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != -1:
+            self._hover = -1
+            self.update()
+
+    def _column(self, items, x, node_w, plot_top, plot_h, gap):
+        """Lay one column of nodes vertically, height ∝ amount."""
+        total = sum(a for _, a in items) or 1.0
+        avail = plot_h - gap * max(0, len(items) - 1)
+        y = plot_top
+        out = []
+        for name, amt in items:
+            h = max(3.0, amt / total * avail)
+            out.append((name, amt, QRectF(x, y, node_w, h)))
+            y += h + gap
+        return out
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.income and not self.outflows:
+            draw_empty(p, self.rect(), "No cash flow this month")
+            return
+        pad = 10
+        node_w = 12
+        plot_top, plot_h = pad + 4, self.height() - 2 * pad - 8
+        label_pad = 4
+        x_in = pad + 78
+        x_cash = self.width() / 2 - node_w / 2
+        x_out = self.width() - pad - 78 - node_w
+        gap = 6
+
+        inc_nodes = self._column(self.income, x_in, node_w, plot_top, plot_h, gap)
+        out_nodes = self._column(self.outflows, x_out, node_w, plot_top, plot_h, gap)
+        total_in = sum(a for _, a in self.income) or 1.0
+        total_out = sum(a for _, a in self.outflows) or 1.0
+        cash_h = plot_h * 0.5
+        cash_rect = QRectF(x_cash, plot_top + (plot_h - cash_h) / 2, node_w, cash_h)
+
+        self._links = []
+
+        def ribbon(r_src, x1, r_dst, x2, y_src, y_dst, h_src, h_dst, color):
+            path = QPainterPath()
+            mx = (x1 + x2) / 2
+            path.moveTo(x1, y_src)
+            path.cubicTo(mx, y_src, mx, y_dst, x2, y_dst)
+            path.lineTo(x2, y_dst + h_dst)
+            path.cubicTo(mx, y_dst + h_dst, mx, y_src + h_src, x1, y_src + h_src)
+            path.closeSubpath()
+            return path
+
+        # income → cash (stack entry points down the cash node)
+        cy_src = cash_rect.top()
+        for i, (name, amt, rect) in enumerate(inc_nodes):
+            h_cash = amt / total_in * cash_rect.height()
+            color = T.SERIES[i % len(T.SERIES)]
+            path = ribbon(rect, rect.right(), cash_rect, cash_rect.left(),
+                          rect.top(), cy_src, rect.height(), h_cash, color)
+            self._links.append((path, color, name, "Cash", amt))
+            cy_src += h_cash
+
+        # cash → outflows
+        cy_dst = cash_rect.top()
+        for j, (name, amt, rect) in enumerate(out_nodes):
+            h_cash = amt / total_out * cash_rect.height()
+            color = T.GREEN if name == "Savings" else T.SERIES[(j + 3) % len(T.SERIES)]
+            path = ribbon(cash_rect, cash_rect.right(), rect, rect.left(),
+                          cy_dst, rect.top(), h_cash, rect.height(), color)
+            self._links.append((path, color, "Cash", name, amt))
+            cy_dst += h_cash
+
+        # ribbons
+        for i, (path, color, src, dst, amt) in enumerate(self._links):
+            c = QColor(color)
+            c.setAlpha(150 if i == self._hover else 55)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(c)
+            p.drawPath(path)
+
+        # nodes + labels
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(10); p.setFont(f)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(T.TEXT_MUTED)); p.drawRect(cash_rect)
+        for i, (name, amt, rect) in enumerate(inc_nodes):
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.SERIES[i % len(T.SERIES)]))
+            p.drawRect(rect)
+            p.setPen(QColor(T.TEXT_MUTED))
+            p.drawText(QRectF(pad, rect.center().y() - 8, 78 - label_pad, 16),
+                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                       name if len(name) <= 11 else name[:10] + "…")
+        for j, (name, amt, rect) in enumerate(out_nodes):
+            col = T.GREEN if name == "Savings" else T.SERIES[(j + 3) % len(T.SERIES)]
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(col)); p.drawRect(rect)
+            p.setPen(QColor(T.TEXT_MUTED))
+            p.drawText(QRectF(rect.right() + label_pad, rect.center().y() - 8, 78 - label_pad, 16),
+                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                       name if len(name) <= 11 else name[:10] + "…")
+        p.setPen(QColor(T.TEXT))
+        p.drawText(cash_rect.adjusted(-30, -18, 30, 0),
+                   int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), "Cash")
+
+        if self._hover != -1:
+            _, color, src, dst, amt = self._links[self._hover]
+            rect = self._links[self._hover][0].boundingRect()
+            draw_hover_pill(p, QRectF(self.rect()), rect.center().x(), rect.center().y(),
+                            [(f"{src} → {dst}", T.TEXT_MUTED, False),
+                             (money(amt, self.currency, signed=False), T.TEXT, True)])
+
+
+class SubscriptionTimeline(QWidget):
+    """Horizontal date axis of upcoming renewals; each marker's radius scales
+    with amount, colour keyed per subscription, staggered to avoid overlap."""
+
+    def __init__(self):
+        super().__init__()
+        self.items: list[dict] = []     # [{name, next(iso), days_until, amount, type}]
+        self.days = 60
+        self.currency = "$"
+        self._geo = []                  # [(cx, cy, r, item)]
+        self._hover = -1
+        self.setMouseTracking(True)
+        self.setMinimumHeight(110)
+
+    def set_data(self, items, days=60, currency="$"):
+        self.items = items
+        self.days = days
+        self.currency = currency
+        self._hover = -1
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        pos = e.position()
+        hit = -1
+        for i, (cx, cy, r, _it) in enumerate(self._geo):
+            if (pos.x() - cx) ** 2 + (pos.y() - cy) ** 2 <= (r + 2) ** 2:
+                hit = i
+        if hit != self._hover:
+            self._hover = hit
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != -1:
+            self._hover = -1
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.items:
+            draw_empty(p, self.rect(), "No renewals in the next 60 days")
+            return
+        pad_l, pad_r = 16, 16
+        axis_y = self.height() - 22
+        x0, x1 = pad_l, self.width() - pad_r
+
+        # axis
+        p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
+        p.drawLine(QPointF(x0, axis_y), QPointF(x1, axis_y))
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
+        for frac, lab in ((0, "today"), (0.5, f"+{self.days // 2}d"),
+                          (1.0, f"+{self.days}d")):
+            x = x0 + (x1 - x0) * frac
+            p.setPen(QColor(T.BORDER_SOFT))
+            p.drawLine(QPointF(x, axis_y - 3), QPointF(x, axis_y + 3))
+            p.setPen(QColor(T.TEXT_DIM))
+            p.drawText(QRectF(x - 24, axis_y + 5, 48, 12),
+                       int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), lab)
+
+        amax = max(i["amount"] for i in self.items) or 1.0
+        self._geo = []
+        for k, it in enumerate(self.items):
+            frac = min(1.0, max(0.0, it["days_until"] / self.days))
+            cx = x0 + (x1 - x0) * frac
+            r = 4 + 10 * math.sqrt(it["amount"] / amax)
+            cy = axis_y - 16 - (k % 3) * 22          # stagger three rows
+            color = T.GREEN if it.get("type") == "income" else T.SERIES[k % len(T.SERIES)]
+            # stem
+            p.setPen(QPen(QColor(T.BORDER_SOFT), 1))
+            p.drawLine(QPointF(cx, cy), QPointF(cx, axis_y))
+            c = QColor(color)
+            if k == self._hover:
+                c = c.lighter(130)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(c)
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            self._geo.append((cx, cy, r, it))
+
+        if self._hover != -1:
+            cx, cy, r, it = self._geo[self._hover]
+            d = date.fromisoformat(it["next"])
+            when = "today" if it["days_until"] == 0 else f"in {it['days_until']}d"
+            draw_hover_pill(p, QRectF(self.rect()), cx, cy - r, [
+                (it["name"], T.TEXT, True),
+                (f"{d.strftime('%d %b')} · {when}", T.TEXT_MUTED, False),
+                (money(it["amount"], self.currency, signed=False, cents=True),
+                 T.GREEN if it.get("type") == "income" else T.RED, False)])
+
+
 class LineChart(QWidget):
     """Auto-scaling line chart: optional dashed target line and area fill.
     Clicking a data point emits ``clicked_idx``; set_selected() marks a point."""
@@ -2687,6 +3705,8 @@ class LineChart(QWidget):
 
     def paintEvent(self, e):
         if not self.points:
+            p = QPainter(self)
+            draw_empty(p, self.rect(), "No data to chart yet")
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -2701,17 +3721,7 @@ class LineChart(QWidget):
         def y_of(v):
             return plot.bottom() - (v - bot) / (top - bot) * plot.height()
 
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
-        tick = bot
-        while tick <= top + 1e-6:
-            y = y_of(tick)
-            p.setPen(QPen(QColor(T.BORDER_SOFT), 1))
-            p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
-            p.setPen(QColor(T.TEXT_DIM))
-            p.drawText(QRectF(0, y - 7, pad_l - 6, 14),
-                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                       _tick_label(tick, self.currency))
-            tick += step
+        draw_axis(p, plot, bot, top, step, self.currency)
 
         n = len(self.points)
         xs = [plot.left() + (plot.width() * i / (n - 1) if n > 1 else plot.width() / 2)
@@ -2847,6 +3857,8 @@ class DonutChart(QWidget):
 
     def paintEvent(self, e):
         if not self.segments:
+            p = QPainter(self)
+            draw_empty(p, self.rect(), "Nothing to break down")
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -2909,36 +3921,134 @@ class MetricTile(QFrame):
         lay.addWidget(label(caption, T.TEXT_MUTED, 11))
         self.value = label(value, color, 19, bold=True)
         lay.addWidget(self.value)
+        self._spark: Sparkline | None = None
 
     def set_value(self, text, color=None):
         self.value.setText(text)
         if color:
             self.value.setStyleSheet(f"color:{color}; background:transparent;")
 
+    def set_spark(self, values, color=None):
+        """Show a tiny trend line under the value (added lazily on first call)."""
+        if self._spark is None:
+            self._spark = Sparkline()
+            self.layout().addWidget(self._spark)
+        self._spark.set_values(values, color)
+
 
 class ProgressBar(QWidget):
-    """Rounded track with a coloured fill (0–1)."""
-    def __init__(self, frac=0.0, color=T.ACCENT, height=9):
+    """Flat track with a coloured fill (0–1).  Optionally a bullet-style target
+    tick and an overrun segment drawn past 100 % in a warning colour."""
+    def __init__(self, frac=0.0, color=T.ACCENT, height=9, target=None):
         super().__init__()
-        self._frac = max(0.0, min(1.0, frac))
+        self._raw = max(0.0, frac)
+        self._frac = min(1.0, self._raw)
         self._color = color
+        self._target = target          # 0–1 position of a target marker, or None
         self.setFixedHeight(height)
 
-    def set_frac(self, frac, color=None):
-        self._frac = max(0.0, min(1.0, frac))
+    def set_frac(self, frac, color=None, target=None):
+        self._raw = max(0.0, frac)
+        self._frac = min(1.0, self._raw)
         if color:
             self._color = color
+        if target is not None:
+            self._target = target
         self.update()
 
     def paintEvent(self, e):
         p = QPainter(self)
-        h = self.height()
+        h, w = self.height(), self.width()
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(T.BG_PILL))
-        p.drawRect(QRectF(0, 0, self.width(), h))
+        p.drawRect(QRectF(0, 0, w, h))
         if self._frac > 0:
             p.setBrush(QColor(self._color))
-            p.drawRect(QRectF(0, 0, max(1, self.width() * self._frac), h))
+            p.drawRect(QRectF(0, 0, max(1, w * self._frac), h))
+        # overrun past 100 % (bullet semantics): a red cap on top of the fill
+        if self._raw > 1.0:
+            over = min(1.0, self._raw - 1.0)
+            oc = QColor(T.RED); oc.setAlpha(200)
+            p.setBrush(oc)
+            p.drawRect(QRectF(w * (1 - over), 0, w * over, h))
+        # target tick
+        if self._target is not None and 0 <= self._target <= 1:
+            tx = w * self._target
+            p.setPen(QPen(QColor(T.AMBER), 1.6))
+            p.drawLine(QPointF(tx, -1), QPointF(tx, h + 1))
+
+
+class WhoOwesBar(QWidget):
+    """Signed horizontal bars per person: green = owed to you, red = you owe."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[tuple[str, float]] = []     # (name, signed amount)
+        self.currency = "$"
+        self._hover = -1
+        self.setMouseTracking(True)
+        self.ROW_H = 26
+        self.LABEL_W = 96
+        self.VALUE_W = 84
+
+    def set_data(self, rows, currency="$"):
+        self.rows = rows
+        self.currency = currency
+        self._hover = -1
+        self.setFixedHeight(max(1, len(rows)) * self.ROW_H + 8)
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        idx = int((e.position().y() - 4) // self.ROW_H)
+        idx = idx if 0 <= idx < len(self.rows) else -1
+        if idx != self._hover:
+            self._hover = idx
+            self.update()
+
+    def leaveEvent(self, e):
+        if self._hover != -1:
+            self._hover = -1
+            self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.rows:
+            draw_empty(p, self.rect(), "Everyone's settled up")
+            return
+        maxv = max((abs(v) for _, v in self.rows), default=1.0) or 1.0
+        track_x = self.LABEL_W
+        track_w = max(20.0, self.width() - self.LABEL_W - self.VALUE_W)
+        mid = track_x + track_w / 2
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(11)
+        fv = QFont(T.FONT_FAMILY); fv.setPixelSize(10); fv.setBold(True)
+
+        # centre zero line
+        p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
+        p.drawLine(QPointF(mid, 4), QPointF(mid, self.height() - 4))
+
+        for i, (name, amt) in enumerate(self.rows):
+            y0 = 4 + i * self.ROW_H
+            cy = y0 + self.ROW_H / 2
+            if i == self._hover:
+                p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.BG_HOVER))
+                p.drawRect(QRectF(0, y0, self.width(), self.ROW_H))
+            p.setFont(f); p.setPen(QColor(T.TEXT if i == self._hover else T.TEXT_MUTED))
+            p.drawText(QRectF(0, y0, self.LABEL_W - 10, self.ROW_H),
+                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                       name if len(name) <= 12 else name[:11] + "…")
+            bw = abs(amt) / maxv * (track_w / 2)
+            col = T.GREEN if amt >= 0 else T.RED
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(col))
+            if amt >= 0:
+                p.drawRect(QRectF(mid, cy - 5, bw, 10))
+            else:
+                p.drawRect(QRectF(mid - bw, cy - 5, bw, 10))
+            p.setFont(fv); p.setPen(QColor(col))
+            p.drawText(QRectF(self.width() - self.VALUE_W + 4, y0,
+                              self.VALUE_W - 6, self.ROW_H),
+                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                       money(amt, self.currency, cents=True))
 
 
 class GoalDialog(QDialog):

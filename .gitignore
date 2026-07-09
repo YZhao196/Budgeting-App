@@ -10,5 +10,8 @@ dist/
 # Local tool settings
 .claude/
 
+# graphify knowledge-graph output
+graphify-out/
+
 # Personal financial data
 data/

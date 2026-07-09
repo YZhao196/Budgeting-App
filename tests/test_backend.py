@@ -727,6 +727,174 @@ def test_set_ideal_and_tags():
     assert s.all_tags() == ["Fixed", "Home"]
 
 
+# --------------------------------------------------------------------------- #
+#  daily_spend / category_series (chart helpers)
+# --------------------------------------------------------------------------- #
+def test_daily_spend_buckets_by_day():
+    txns = [
+        {"date": "2026-05-03", "amount": -25.0, "description": "coffee"},
+        {"date": "2026-05-03", "amount": -10.0, "description": "bus"},
+        {"date": "2026-05-10", "amount": -40.0, "description": "food"},
+        {"date": "2026-05-12", "amount": 500.0, "description": "salary"},  # credit ignored
+        {"date": "2026-04-30", "amount": -99.0, "description": "other month"},
+    ]
+    got = B.daily_spend(txns, 2026, 5)
+    assert got == {3: 35.0, 10: 40.0}
+
+
+def test_daily_spend_empty():
+    assert B.daily_spend([], 2026, 5) == {}
+
+
+def test_category_series_shape_and_totals():
+    monthly = {"type": "interval", "every": 1, "unit": "month"}
+    items = [
+        _def(name="Rent", amount=800, type="expense",
+             start="2026-01-01", recurrence=monthly),
+        _def(name="Food", amount=300, type="expense",
+             start="2026-01-05", recurrence=monthly),
+        _def(name="Salary", amount=3000, type="income",
+             start="2026-01-01", recurrence=monthly),   # excluded
+    ]
+    got = B.category_series(items, 2026, 5, count=3)
+    assert got["labels"] == [dm.MONTH_ABBR[3], dm.MONTH_ABBR[4], dm.MONTH_ABBR[5]]
+    assert got["categories"] == ["Rent", "Food"]        # sorted by total desc
+    assert len(got["matrix"]) == 3
+    assert got["matrix"][0] == [800.0, 300.0]
+
+
+def test_category_series_folds_other():
+    monthly = {"type": "interval", "every": 1, "unit": "month"}
+    items = [_def(name=f"C{i}", amount=100 - i, type="expense",
+                  start="2026-01-01", recurrence=monthly) for i in range(5)]
+    got = B.category_series(items, 2026, 5, count=2, top=3)
+    assert got["categories"] == ["C0", "C1", "C2", "Other"]
+    # Other = C3 + C4 = 97 + 96
+    assert got["matrix"][0][3] == pytest.approx(193.0)
+
+
+def test_category_series_drops_all_zero_categories():
+    items = [
+        _def(name="Old", amount=50, type="expense", start="2020-01-01"),  # one-off, long past
+        _def(name="Live", amount=50, type="expense", start="2026-05-01"),
+    ]
+    got = B.category_series(items, 2026, 5, count=2)
+    assert got["categories"] == ["Live"]
+
+
+# --------------------------------------------------------------------------- #
+#  Phase-2 chart helpers: forecast_band / cashflow_links / net_worth_series
+# --------------------------------------------------------------------------- #
+MONTHLY_R = {"type": "interval", "every": 1, "unit": "month"}
+
+
+def _income_expense_items():
+    return [
+        _def(name="Salary", amount=3000, type="income",
+             start="2026-01-01", recurrence=MONTHLY_R),
+        _def(name="Rent", amount=1200, type="expense",
+             start="2026-01-01", recurrence=MONTHLY_R),
+        _def(name="Food", amount=400, type="expense",
+             start="2026-01-01", recurrence=MONTHLY_R),
+    ]
+
+
+def test_forecast_band_widens_and_brackets_median():
+    items = _income_expense_items()
+    band = B.forecast_band(items, 1000.0, date(2026, 5, 15), months=6)
+    assert len(band) == 6
+    for row in band:
+        assert row["lo"] <= row["median"] <= row["hi"]
+    # uncertainty grows with the horizon
+    w1 = band[0]["hi"] - band[0]["lo"]
+    w6 = band[-1]["hi"] - band[-1]["lo"]
+    assert w6 > w1
+
+
+def test_forecast_band_empty_when_zero_months():
+    assert B.forecast_band(_income_expense_items(), 0.0, date(2026, 5, 1), months=0) == []
+
+
+def test_cashflow_links_balances_and_adds_savings():
+    items = _income_expense_items()
+    flow = B.cashflow_links(items, 2026, 5)
+    assert flow["income"] == [("Salary", 3000.0)]
+    names = dict(flow["outflows"])
+    assert names["Rent"] == 1200.0 and names["Food"] == 400.0
+    # income 3000 - spend 1600 = 1400 savings
+    assert names["Savings"] == pytest.approx(1400.0)
+    assert flow["cash"] == pytest.approx(3000.0)
+
+
+def test_cashflow_links_no_savings_when_overspent():
+    items = [
+        _def(name="Salary", amount=1000, type="income",
+             start="2026-01-01", recurrence=MONTHLY_R),
+        _def(name="Rent", amount=1500, type="expense",
+             start="2026-01-01", recurrence=MONTHLY_R),
+    ]
+    flow = B.cashflow_links(items, 2026, 5)
+    assert "Savings" not in dict(flow["outflows"])
+
+
+def test_net_worth_series_uses_real_snapshots():
+    snaps = [
+        {"date": "2026-03-31", "assets": 100.0, "liabilities": 40.0},
+        {"date": "2026-04-30", "assets": 120.0, "liabilities": 30.0},
+    ]
+    got = B.net_worth_series([], [], date(2026, 5, 1), snaps, months=6)
+    assert len(got) == 2
+    assert got[-1]["net"] == pytest.approx(90.0)
+    assert got[0]["assets"] == 100.0
+
+
+def test_net_worth_series_reconstructs_without_snapshots():
+    accounts = [
+        {"name": "Cash", "kind": "cash", "balance": 5000.0},
+        {"name": "Loan", "kind": "debt", "balance": 2000.0},
+    ]
+    items = _income_expense_items()   # +1400/mo P&L
+    got = B.net_worth_series(items, accounts, date(2026, 5, 15), [], months=3)
+    assert len(got) == 3
+    # last point == today's net worth (5000 - 2000)
+    assert got[-1]["net"] == pytest.approx(3000.0)
+    # earlier months are lower (net worth grew toward today)
+    assert got[0]["net"] < got[-1]["net"]
+    # liabilities held constant at today's level
+    assert all(r["liabilities"] == 2000.0 for r in got)
+
+
+# --------------------------------------------------------------------------- #
+#  goal_eta (goal projection)
+# --------------------------------------------------------------------------- #
+def test_goal_eta_reached():
+    r = B.goal_eta(1000, 1000, 200, date(2026, 7, 1))
+    assert r["done"] is True and r["months"] == 0
+
+
+def test_goal_eta_projects_months_and_date():
+    # need 800 more at 200/mo -> 4 months -> Jul + 4 = Nov 2026
+    r = B.goal_eta(200, 1000, 200, date(2026, 7, 8))
+    assert r["done"] is False
+    assert r["months"] == 4
+    assert (r["year"], r["month"]) == (2026, 11)
+    # projection ramps from saved toward target, capped at target
+    vals = [v for _, v in r["projection"]]
+    assert vals[0] == 200 and vals[-1] == 1000
+    assert all(a <= b for a, b in zip(vals, vals[1:]))
+
+
+def test_goal_eta_no_contribution():
+    r = B.goal_eta(100, 1000, 0, date(2026, 7, 1))
+    assert r["months"] is None and r["projection"] == []
+
+
+def test_goal_eta_rounds_up_partial_month():
+    # need 250 at 200/mo -> ceil(1.25) = 2 months
+    r = B.goal_eta(0, 250, 200, date(2026, 1, 1))
+    assert r["months"] == 2
+
+
 # need pytest.approx for float comparisons
 try:
     import pytest
