@@ -1043,7 +1043,8 @@ class ItemStore:
         return defn
 
     def update_subscription(self, def_id: str, *, name=None, amount=None,
-                            item_type=None, recurrence=None, shared=False) -> None:
+                            item_type=None, recurrence=None, shared=False,
+                            start=None) -> None:
         """Edit an existing subscription's properties in place.
 
         ``shared`` defaults to the sentinel ``False`` (leave as-is); pass a dict
@@ -1059,6 +1060,8 @@ class ItemStore:
             defn["type"] = item_type
         if recurrence is not None:
             defn["recurrence"] = recurrence
+        if start is not None:
+            defn["start"] = start
         if shared is not False:
             if shared:
                 defn["shared"] = shared
@@ -1131,10 +1134,11 @@ class ItemStore:
         self.save()
 
     def reset_all(self, year: int, month: int) -> None:
+        # keep a one-shot backup (<file>.bak) instead of deleting outright
         for f in (ITEMS_FILE, GOALS_FILE):
             if os.path.exists(f):
                 try:
-                    os.remove(f)
+                    os.replace(f, f + ".bak")
                 except OSError:
                     pass
         self._data = {"items": [], "settings": _default_settings(),

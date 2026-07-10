@@ -1045,6 +1045,12 @@ class GoalsPage(QWidget):
             self._save_goals()
 
     def _delete_goal(self, g):
+        from PyQt6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+                self, "Delete", f"Delete goal \"{g.get('name', '')}\"?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
         self.goals_doc["goals"] = [x for x in self.goals_doc.get("goals", [])
                                    if x is not g]
         self._save_goals()
@@ -1404,14 +1410,14 @@ class SettingsPage(QWidget):
         dlay.addWidget(label("Danger zone", T.RED, 13, bold=True))
         dlay.addWidget(label(
             "Permanently deletes all months, goals and settings. "
-            "This cannot be undone.", T.TEXT_MUTED, 11))
+            "A one-off .bak backup is kept in the data folder.", T.TEXT_MUTED, 11))
         rst = QPushButton("Reset all budget data")
         rst.setCursor(Qt.CursorShape.PointingHandCursor)
         rf = QFont(T.FONT_FAMILY); rf.setPixelSize(12); rst.setFont(rf)
         rst.setStyleSheet(
             f"QPushButton{{background:transparent; color:{T.RED};"
             f"border:1px solid {T.RED_BORDER}; border-radius:0px; padding:7px 16px;}}"
-            f"QPushButton:hover{{background:{T.RED}; color:#111111;"
+            f"QPushButton:hover{{background:{T.RED}; color:{T.BG_APP};"
             f"border-color:{T.RED};}}")
         rst.clicked.connect(self._confirm_reset)
         dlay.addWidget(rst, 0, Qt.AlignmentFlag.AlignLeft)
@@ -1473,15 +1479,20 @@ class SettingsPage(QWidget):
             self, "Export this month", f"budget_{self.doc['month']}.csv",
             "CSV files (*.csv)")
         if path:
-            X.export_month_csv(self.doc, path)
-            self.status.setText(f"Saved {os.path.basename(path)}")
+            try:
+                X.export_month_csv(self.doc, path)
+            except OSError as e:                # locked (open in Excel) / read-only
+                self._flash_status(self.status, f"Could not save: {e}", T.RED)
+                return
+            self._flash_status(self.status, f"Saved {os.path.basename(path)}", T.GREEN)
 
     def _confirm_reset(self):
         from PyQt6.QtWidgets import QMessageBox
         msg = QMessageBox(self)
         msg.setWindowTitle("Reset all budget data")
         msg.setText("This will permanently erase every month, goal and setting.")
-        msg.setInformativeText("Are you absolutely sure? This cannot be undone.")
+        msg.setInformativeText("Are you absolutely sure? A one-off backup is kept "
+                               "as items.json.bak / goals.json.bak in the data folder.")
         msg.setIcon(QMessageBox.Icon.Warning)
         yes = msg.addButton("Yes, delete everything", QMessageBox.ButtonRole.DestructiveRole)
         msg.addButton(QMessageBox.StandardButton.Cancel)
@@ -1494,11 +1505,23 @@ class SettingsPage(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, "Export all months", "budget_history.csv", "CSV files (*.csv)")
         if path:
-            X.export_history_csv(self.dm, path)
-            self.status.setText(f"Saved {os.path.basename(path)}")
+            try:
+                X.export_history_csv(self.dm, path)
+            except OSError as e:
+                self._flash_status(self.status, f"Could not save: {e}", T.RED)
+                return
+            self._flash_status(self.status, f"Saved {os.path.basename(path)}", T.GREEN)
 
     # -- bank import ------------------------------------------------------ #
+    def _flash_status(self, lbl, text, color):
+        """Show a transient status message that clears itself after a few seconds."""
+        lbl.setText(text)
+        lbl.setStyleSheet(f"color:{color}; background:transparent;")
+        QTimer.singleShot(4000, lambda: lbl.text() == text and lbl.setText(""))
+
     def _refresh_import_status(self):
+        # neutral colour — clears any leftover red/amber from a previous import
+        self.import_status.setStyleSheet(f"color:{T.TEXT_MUTED}; background:transparent;")
         n = len(self.dm.transactions()) if hasattr(self.dm, "transactions") else 0
         if n:
             uncat = sum(1 for t in self.dm.transactions() if not t.get("category"))
@@ -1574,6 +1597,12 @@ class SettingsPage(QWidget):
         self._refresh_rules(); self._refresh_import_status(); self.on_change()
 
     def _remove_rule(self, idx):
+        from PyQt6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+                self, "Delete rule", "Delete this categorisation rule?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
         self.dm.remove_rule(idx)
         self._refresh_rules(); self._refresh_import_status(); self.on_change()
 
@@ -1664,7 +1693,7 @@ class OnboardingDialog(QDialog):
         f = QFont(T.FONT_FAMILY); f.setPixelSize(13); b.setFont(f)
         if primary:
             b.setStyleSheet(
-                f"QPushButton{{background:{T.ACCENT};color:#111;border:none;"
+                f"QPushButton{{background:{T.ACCENT};color:{T.ON_ACCENT};border:none;"
                 f"padding:8px 22px;font-weight:bold;}}"
                 f"QPushButton:hover{{background:{T.GREEN_BRIGHT};}}")
         else:
@@ -1758,6 +1787,15 @@ class OnboardingDialog(QDialog):
                 row.addWidget(lbl)
         return row
 
+    @staticmethod
+    def _amount_edit(width: int) -> QLineEdit:
+        """Amount field that only accepts digits, commas and a decimal point."""
+        from PyQt6.QtCore import QRegularExpression
+        from PyQt6.QtGui import QRegularExpressionValidator
+        le = QLineEdit(); le.setPlaceholderText("0.00"); le.setFixedWidth(width)
+        le.setValidator(QRegularExpressionValidator(QRegularExpression(r"[0-9,.\s]*")))
+        return le
+
     def _recur_widgets(self, default_n=1, default_unit=2):
         """Return (n_spin, unit_combo) pre-configured. default_unit: 2=months."""
         n_spin = QSpinBox(); n_spin.setRange(1, 999); n_spin.setValue(default_n)
@@ -1791,7 +1829,7 @@ class OnboardingDialog(QDialog):
         rl = QHBoxLayout(row_w)
         rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(7)
         name_le = QLineEdit(); name_le.setPlaceholderText("e.g. Salary")
-        amt_le  = QLineEdit(); amt_le.setPlaceholderText("0.00"); amt_le.setFixedWidth(80)
+        amt_le  = self._amount_edit(80)
         n_spin, unit_cb = self._recur_widgets(1, 2)  # default: every 1 month
         pair = (name_le, amt_le, n_spin, unit_cb)
         self._income_pairs.append(pair)
@@ -1833,7 +1871,7 @@ class OnboardingDialog(QDialog):
         rl = QHBoxLayout(row_w)
         rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(7)
         name_le = QLineEdit(); name_le.setPlaceholderText("e.g. Rent")
-        amt_le  = QLineEdit(); amt_le.setPlaceholderText("0.00"); amt_le.setFixedWidth(76)
+        amt_le  = self._amount_edit(76)
         due_de  = QDateEdit()
         due_de.setCalendarPopup(True)
         due_de.setDate(QDate(self.today.year, self.today.month, 1))
@@ -1861,6 +1899,10 @@ class OnboardingDialog(QDialog):
                                        "You can update this any time in Settings.")
         content.addWidget(label("Target monthly savings", T.TEXT_MUTED, 11))
         self._tgt_le = QLineEdit(); self._tgt_le.setPlaceholderText("e.g. 500")
+        from PyQt6.QtCore import QRegularExpression
+        from PyQt6.QtGui import QRegularExpressionValidator
+        self._tgt_le.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"[0-9,.\s]*")))
         content.addWidget(self._tgt_le)
         content.addStretch(1)
         lay.addLayout(self._nav_row(back_idx=2, next_fn=self._commit_targets,
@@ -1868,10 +1910,16 @@ class OnboardingDialog(QDialog):
         return w
 
     def _commit_targets(self):
+        raw = self._tgt_le.text().replace(",", "").strip()
         try:
-            self._target_pnl = float(self._tgt_le.text().replace(",", "").strip() or "0")
+            self._target_pnl = float(raw or "0")
         except ValueError:
-            self._target_pnl = 0.0
+            from PyQt6.QtWidgets import QToolTip
+            self._tgt_le.setFocus()
+            QToolTip.showText(
+                self._tgt_le.mapToGlobal(self._tgt_le.rect().bottomLeft()),
+                f"Couldn't read \"{raw}\" as a number.", self._tgt_le)
+            return
         self._build_result()
         self._go(4)
 
@@ -2272,7 +2320,7 @@ class SubscriptionsPage(QWidget):
         res = SharedPlanDialog.create(self, self.currency)
         if not res:
             return
-        start = f"{self.year:04d}-{self.month:02d}-01"
+        start = res.get("start") or f"{self.year:04d}-{self.month:02d}-01"
         if res.get("solo"):
             self.dm.create_subscription(res["name"], res["amount"], start,
                                         res["recurrence"])
@@ -2288,12 +2336,13 @@ class SubscriptionsPage(QWidget):
         if res.get("solo"):
             self.dm.update_subscription(
                 defn["id"], name=res["name"], amount=res["amount"],
-                item_type="expense", recurrence=res["recurrence"], shared=None)
+                item_type="expense", recurrence=res["recurrence"], shared=None,
+                start=res.get("start"))
         else:
             self.dm.update_subscription(
                 defn["id"], name=res["name"], amount=res["amount"],
                 item_type=res["type"], recurrence=res["recurrence"],
-                shared=res["shared"])
+                shared=res["shared"], start=res.get("start"))
         self.on_change()
 
     # -- people: registry + per-person subscription selection ------------- #
@@ -2304,6 +2353,15 @@ class SubscriptionsPage(QWidget):
             self.on_change()
 
     def _remove_person(self, pid):
+        from PyQt6.QtWidgets import QMessageBox
+        person = next((p for p in self.dm.people() if p.get("id") == pid), None)
+        name = person.get("name", "this person") if person else "this person"
+        if QMessageBox.question(
+                self, "Remove person",
+                f"Remove {name}? They will be dropped from every shared plan.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
         self.dm.remove_person(pid)
         self.on_change()
 
@@ -2739,6 +2797,7 @@ def _register_fonts():
             QFontDatabase.addApplicationFont(path)
     # graceful fallback for QFont(...) constructions when Arial Nova isn't installed
     QFont.insertSubstitutions(T.FONT_FAMILY, ["Arial", "Segoe UI"])
+    QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT, [T.FONT_FAMILY, "Arial", "Segoe UI"])
 
 
 def main():

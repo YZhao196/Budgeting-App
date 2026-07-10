@@ -19,9 +19,9 @@ BORDER        = "#2c2c2c"   # default hairline border
 BORDER_SOFT   = "#202020"   # subtle divider
 BORDER_LIGHT  = "#383838"   # raised / focused border
 
-TEXT          = "#c8c8c8"   # primary text
-TEXT_MUTED    = "#6a6a6a"   # secondary / labels
-TEXT_DIM      = "#404040"   # tertiary (dates, hints)
+TEXT          = "#d4d4d4"   # primary text
+TEXT_MUTED    = "#9a9a9a"   # secondary / labels (>= 4.5:1 on cards)
+TEXT_DIM      = "#8a8a8a"   # tertiary (dates, hints)
 
 GREEN         = "#5da876"   # income / positive (muted sage green)
 GREEN_BRIGHT  = "#74c490"   # hero P&L number
@@ -53,6 +53,8 @@ DOT_SOON      = "#c8944a"   # amber – due soon
 DOT_OK        = "#5da876"   # green – settled / fine
 
 ACCENT        = GREEN       # "#5da876"
+ON_ACCENT     = "#0d1a10"   # text placed on top of ACCENT fills
+FOCUS         = "#74c490"   # keyboard-focus ring
 
 # --------------------------------------------------------------------------- #
 #  Sizing  (squared — zero corner radius everywhere)
@@ -66,7 +68,8 @@ GAP         = 14            # gutter between the three main columns
 WIN_W       = 1680
 WIN_H       = 980
 
-FONT_FAMILY = "Arial Nova Light"   # falls back to a system sans if not installed
+FONT_FAMILY       = "Arial Nova"         # base UI font (regular weight for legibility)
+FONT_FAMILY_LIGHT = "Arial Nova Light"   # large display numbers only (>= ~18px)
 
 # --------------------------------------------------------------------------- #
 #  Global stylesheet
@@ -110,11 +113,11 @@ def global_qss() -> str:
         border-radius: 0px;
         padding: 6px 9px;
         selection-background-color: {GREEN};
-        selection-color: #0d1a10;
+        selection-color: {ON_ACCENT};
     }}
     QLineEdit:focus, QComboBox:focus, QDateEdit:focus,
     QDoubleSpinBox:focus, QSpinBox:focus {{
-        border: 1px solid {BORDER_LIGHT};
+        border: 1px solid {FOCUS};
     }}
     QComboBox::drop-down {{ border: none; width: 18px; }}
     QComboBox QAbstractItemView {{

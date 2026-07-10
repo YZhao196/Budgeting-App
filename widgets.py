@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QRectF, QSize, Qt,
                           QTimer, QVariantAnimation, pyqtSignal)
@@ -89,7 +89,8 @@ def money(v: float, currency: str = "$", signed: bool = True,
 def label(text: str, color: str = T.TEXT, px: int = 12, bold: bool = False,
           align=None) -> QLabel:
     lb = QLabel(text)
-    f = QFont(T.FONT_FAMILY); f.setPixelSize(px); f.setBold(bold)
+    fam = T.FONT_FAMILY_LIGHT if (px >= 18 and not bold) else T.FONT_FAMILY
+    f = QFont(fam); f.setPixelSize(px); f.setBold(bold)
     lb.setFont(f)
     lb.setStyleSheet(f"color:{color}; background:transparent;")
     if align is not None:
@@ -174,8 +175,19 @@ class BoundedScroll(QScrollArea):
         e.accept()
 
 
+def draw_focus_ring(widget, painter=None):
+    """Paint a 1px keyboard-focus ring inside a widget's bounds (layout-neutral)."""
+    if not widget.hasFocus():
+        return
+    p = painter or QPainter(widget)
+    p.setPen(QPen(QColor(T.FOCUS), 1))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRect(widget.rect().adjusted(0, 0, -1, -1))
+
+
 class Clickable(QLabel):
-    """A QLabel that behaves like a flat text button (colour shifts on hover)."""
+    """A QLabel that behaves like a flat text button (colour shifts on hover).
+    Focusable: Tab reaches it, Enter/Space activates it."""
     clicked = pyqtSignal()
 
     def __init__(self, text, color=T.TEXT_MUTED, px=12, hover=None, bold=False):
@@ -186,6 +198,7 @@ class Clickable(QLabel):
         self.setFont(f)
         self.setStyleSheet(f"color:{color}; background:transparent;")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
 
     def set_base_color(self, color):
         self._c = color
@@ -201,6 +214,19 @@ class Clickable(QLabel):
         if e.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
 
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)
+
+    def focusInEvent(self, e):  super().focusInEvent(e);  self.update()
+    def focusOutEvent(self, e): super().focusOutEvent(e); self.update()
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        draw_focus_ring(self)
+
 
 # --------------------------------------------------------------------------- #
 #  Sidebar navigation
@@ -215,6 +241,8 @@ class NavButton(QWidget):
         self._hover = False
         self.setFixedSize(T.SIDEBAR_W, 54)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.setToolTip(text)
 
     def setActive(self, a):
         self._active = a
@@ -226,6 +254,15 @@ class NavButton(QWidget):
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.key)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit(self.key)
+        else:
+            super().keyPressEvent(e)
+
+    def focusInEvent(self, e):  super().focusInEvent(e);  self.update()
+    def focusOutEvent(self, e): super().focusOutEvent(e); self.update()
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -246,6 +283,7 @@ class NavButton(QWidget):
         p.drawText(QRectF(0, 33, self.width(), 16),
                    int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
                    self.text)
+        draw_focus_ring(self, p)
 
 
 class Sidebar(QWidget):
@@ -325,6 +363,7 @@ class IconButton(QWidget):
         self._hover = False
         self.setFixedSize(size, size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
 
     def enterEvent(self, e): self._hover = True; self.update()
     def leaveEvent(self, e): self._hover = False; self.update()
@@ -333,12 +372,22 @@ class IconButton(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
 
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)
+
+    def focusInEvent(self, e):  super().focusInEvent(e);  self.update()
+    def focusOutEvent(self, e): super().focusOutEvent(e); self.update()
+
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         col = T.TEXT if self._hover else self._color
         m = (self.width() - self.isz) / 2
         icons.draw(p, self.icon, QRectF(m, m, self.isz, self.isz), col, 1.6)
+        draw_focus_ring(self, p)
 
 
 class MonthPickerPopup(QFrame):
@@ -416,7 +465,7 @@ class MonthPickerPopup(QFrame):
             btn.setFlat(True)
 
             if is_cur:
-                bg, fg, brd = T.ACCENT, "#ffffff", T.ACCENT
+                bg, fg, brd = T.ACCENT, T.ON_ACCENT, T.ACCENT
             elif has_data:
                 bg, fg, brd = T.BG_CARD_SOFT, T.TEXT, T.BORDER
             else:
@@ -1233,12 +1282,18 @@ class LedgerCard(QFrame):
             self._editing = None
             self.rebuild()
 
+    def _reject_edit(self, message):
+        """Revert an inline edit and tell the user why it was rejected."""
+        from PyQt6.QtWidgets import QToolTip
+        QToolTip.showText(QCursor.pos(), message, self)
+        self.rebuild()
+
     def _commit(self, node, field, value):
         self._editing = None
         if field == "name":
             v = value.strip()
             if not v:
-                self.rebuild(); return
+                self._reject_edit("Name can't be empty — edit discarded."); return
             if self.store:
                 self.store.edit_field(self._def_of(node), self._occ_of(node),
                                       "name", v, scope="all")
@@ -1247,7 +1302,8 @@ class LedgerCard(QFrame):
         elif field == "amount":
             ev = calc_eval(value)
             if ev is None:
-                self.rebuild(); return
+                self._reject_edit(f"Couldn't parse \"{value.strip()}\" as an amount "
+                                  "— edit discarded."); return
             if self.store:
                 scope = self._resolve_scope(node)
                 if scope is None:
@@ -1520,7 +1576,7 @@ def _calendar_qss():
     QCalendarWidget QWidget {{ background:{T.BG_CARD}; color:{T.TEXT}; }}
     QCalendarWidget QAbstractItemView:enabled {{
         background:{T.BG_CARD}; color:{T.TEXT}; outline:none;
-        selection-background-color:{T.ACCENT}; selection-color:#111111; }}
+        selection-background-color:{T.ACCENT}; selection-color:{T.ON_ACCENT}; }}
     QCalendarWidget QAbstractItemView:disabled {{ color:{T.TEXT_DIM}; }}
     QCalendarWidget QWidget#qt_calendar_navigationbar {{ background:{T.BG_CARD_SOFT}; }}
     QCalendarWidget QToolButton {{
@@ -1535,8 +1591,70 @@ def _calendar_qss():
     """
 
 
+# --------------------------------------------------------------------------- #
+#  Recurrence editors — laid out like Google Calendar's custom-recurrence
+#  dialog ("Repeat every [N] [weeks] on [M]"), while emitting the exact same
+#  rule dicts the engine already understands (interval / days).
+# --------------------------------------------------------------------------- #
+_UNITS = ["day", "week", "month", "year"]
+_FREQ_WORD = {"day": "daily", "week": "weekly", "month": "monthly",
+              "year": "annually"}
+
+
+def _freq_summary(every, unit, anchor=None, days=None):
+    """Google-style recurrence sentence, e.g. 'Occurs every 2 weeks on Monday'."""
+    if days:
+        lst = ", ".join(str(d) for d in days)
+        return f"Occurs monthly on day{'s' if len(days) > 1 else ''} {lst}"
+    head = _FREQ_WORD[unit] if every == 1 else f"every {every} {unit}s"
+    out = f"Occurs {head}"
+    if anchor is not None:
+        if unit == "week":
+            out += f" on {anchor.strftime('%A')}"
+        elif unit == "month":
+            out += f" on day {anchor.day}"
+        elif unit == "year":
+            out += f" on {anchor.strftime('%d %b')}"
+    return out
+
+
+class WeekdayChips(QWidget):
+    """Google-style weekday chip row (Mon-first, matching the heatmap).
+    Single-select — the recurrence engine anchors a weekly cycle to one
+    start date, so exactly one chip is lit at a time."""
+    changed = pyqtSignal(int)    # 0 = Monday … 6 = Sunday
+
+    def __init__(self):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0); row.setSpacing(4)
+        self._btns = []
+        for i, ch in enumerate("MTWTFSS"):
+            b = QPushButton(ch); b.setCheckable(True)
+            b.setFixedSize(26, 26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
+                f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
+                f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
+                f"border-color:{T.ACCENT};}}")
+            b.clicked.connect(lambda _=False, wd=i: self._pick(wd))
+            row.addWidget(b); self._btns.append(b)
+        row.addStretch(1)
+
+    def _pick(self, wd):
+        self.set_weekday(wd)
+        self.changed.emit(wd)
+
+    def set_weekday(self, wd):
+        for i, b in enumerate(self._btns):
+            b.setChecked(i == wd)
+
+
 class RepeatDialog(QDialog):
-    """Editor for a recurrence rule: an interval, or specific days of the month."""
+    """Editor for a recurrence rule, Google Calendar style: "Repeat every
+    [N] [unit]", plus a monthly-only option to repeat on specific days of
+    the month.  Emits the same rule dicts as before (interval / days)."""
     def __init__(self, parent, repeat):
         super().__init__(parent)
         self.setWindowTitle("Recurrence")
@@ -1544,24 +1662,15 @@ class RepeatDialog(QDialog):
         self.setMinimumWidth(300)
         self._result = None
         r = dict(repeat) if repeat else {"type": "interval", "every": 1, "unit": "month"}
-        self._mode = r.get("type", "interval")
+        on_days = r.get("type") == "days"
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(11)
-        lay.addWidget(label("How often does this repeat?", T.TEXT_MUTED, 11))
 
-        seg = QHBoxLayout(); seg.setSpacing(6)
-        self.btn_interval = self._seg("Every N…", self._mode == "interval",
-                                      lambda: self._set_mode("interval"))
-        self.btn_days = self._seg("Days of month", self._mode == "days",
-                                  lambda: self._set_mode("days"))
-        seg.addWidget(self.btn_interval); seg.addWidget(self.btn_days); seg.addStretch(1)
-        lay.addLayout(seg)
-
-        # interval editor
+        # "Repeat every [N] [unit]" — Google Calendar's custom-recurrence row
         self.iv = QWidget()
         ivl = QHBoxLayout(self.iv); ivl.setContentsMargins(0, 0, 0, 0); ivl.setSpacing(8)
-        ivl.addWidget(label("Every", T.TEXT, 12))
+        ivl.addWidget(label("Repeat every", T.TEXT, 12))
         self.every = QSpinBox()
         self.every.setRange(1, 99)
         self.every.setFixedWidth(80)
@@ -1591,11 +1700,18 @@ class RepeatDialog(QDialog):
             }}
         """)
         ivl.addWidget(self.every)
-        self.unit = QComboBox(); self.unit.addItems(["day", "week", "month", "year"])
+        self.unit = QComboBox(); self.unit.addItems(_UNITS)
         self.unit.setCurrentText(r.get("unit", "month")
                                  if r.get("type") == "interval" else "month")
         ivl.addWidget(self.unit); ivl.addStretch(1)
         lay.addWidget(self.iv)
+
+        # monthly-only variant: repeat on specific days of the month
+        # (Google's "Monthly on day …", generalised to several days)
+        self.btn_days = self._seg("On specific days of month", on_days,
+                                  self._sync_ui)
+
+        lay.addWidget(self.btn_days)
 
         # days-of-month grid
         self.dg = QWidget()
@@ -1608,11 +1724,16 @@ class RepeatDialog(QDialog):
             b.setStyleSheet(
                 f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
                 f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
-                f"QPushButton:checked{{background:{T.ACCENT}; color:#111111;"
+                f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
                 f"border-color:{T.ACCENT};}}")
             self.day_btns[d] = b
             grid.addWidget(b, (d - 1) // 7, (d - 1) % 7)
         lay.addWidget(self.dg)
+
+        # live plain-language summary, Google-style ("Occurs every 2 weeks")
+        self.summary = label("", T.TEXT_DIM, 10)
+        self.summary.setWordWrap(True)
+        lay.addWidget(self.summary)
 
         # actions
         row = QHBoxLayout(); row.setSpacing(8)
@@ -1625,7 +1746,11 @@ class RepeatDialog(QDialog):
         row.addWidget(save); row.addStretch(1); row.addWidget(clr); row.addWidget(cancel)
         lay.addLayout(row)
 
-        self._set_mode(self._mode)
+        self.every.valueChanged.connect(self._sync_ui)
+        self.unit.currentIndexChanged.connect(self._sync_ui)
+        for b in self.day_btns.values():
+            b.clicked.connect(self._sync_ui)
+        self._sync_ui()
 
     def _seg(self, text, active, cb):
         b = QPushButton(text); b.setCheckable(True); b.setChecked(active)
@@ -1646,21 +1771,37 @@ class RepeatDialog(QDialog):
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
 
-    def _set_mode(self, mode):
-        self._mode = mode
-        self.btn_interval.setChecked(mode == "interval")
-        self.btn_days.setChecked(mode == "days")
-        self.iv.setVisible(mode == "interval")
-        self.dg.setVisible(mode == "days")
+    def _on_days(self):
+        return (_UNITS[self.unit.currentIndex()] == "month"
+                and self.btn_days.isChecked())
+
+    def _sync_ui(self):
+        n = int(self.every.value())
+        unit = _UNITS[self.unit.currentIndex()]
+        # pluralise the unit list to match N, Google-style ("2 weeks")
+        for i, u in enumerate(_UNITS):
+            self.unit.setItemText(i, u + ("s" if n != 1 else ""))
+        monthly = unit == "month"
+        self.btn_days.setVisible(monthly)
+        on_days = self._on_days()
+        self.dg.setVisible(on_days)
+        # the days rule always fires monthly, so "every N" is pinned to 1
+        self.every.setEnabled(not on_days)
+        if on_days and n != 1:
+            self.every.setValue(1); n = 1
+        days = sorted(d for d, b in self.day_btns.items() if b.isChecked())
+        self.summary.setText(
+            _freq_summary(n, unit, days=days if on_days else None)
+            if (days or not on_days) else "Pick one or more days below.")
         self.adjustSize()
 
     def _save(self):
-        if self._mode == "interval":
-            self._result = {"type": "interval", "every": int(self.every.value()),
-                            "unit": self.unit.currentText()}
-        else:
+        if self._on_days():
             days = sorted(d for d, b in self.day_btns.items() if b.isChecked())
             self._result = {"type": "days", "days": days} if days else None
+        else:
+            self._result = {"type": "interval", "every": int(self.every.value()),
+                            "unit": _UNITS[self.unit.currentIndex()]}
         self.accept()
 
     def _clear(self):
@@ -1891,18 +2032,73 @@ class NoteDialog(QDialog):
         return (True, dlg._result)
 
 
+class DateField(QPushButton):
+    """A themed button that opens an on-theme calendar popup to pick a date.
+    Reuses the same ``_calendar_qss()`` styling as the ledger's due-date picker."""
+    picked = pyqtSignal(object)          # datetime.date
+
+    def __init__(self, initial=None):
+        super().__init__()
+        self._date = initial or date.today()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT};"
+            f"border:1px solid {T.BORDER_LIGHT}; border-radius:0px;"
+            f"padding:6px 10px; text-align:left;}}"
+            f"QPushButton:hover{{border-color:{T.GREEN_BORDER};}}")
+        self.clicked.connect(self._open)
+        self._refresh()
+
+    def date(self):
+        return self._date
+
+    def set_date(self, d):
+        if d:
+            self._date = d
+            self._refresh()
+
+    def _refresh(self):
+        self.setText("📅  " + self._date.strftime("%a %d %b %Y") + "      ▾")
+
+    def _open(self):
+        m = QMenu(self)
+        m.setStyleSheet(
+            f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
+            f"padding:6px;}}")
+        cal = QCalendarWidget()
+        cal.setFixedSize(266, 220)
+        cal.setGridVisible(False)
+        cal.setVerticalHeaderFormat(
+            QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        cal.setStyleSheet(_calendar_qss())
+        cal.setCurrentPage(self._date.year, self._date.month)
+        cal.setSelectedDate(QDate(self._date.year, self._date.month, self._date.day))
+        cal.clicked.connect(lambda qd: self._pick(qd, m))
+        wa = QWidgetAction(m); wa.setDefaultWidget(cal); m.addAction(wa)
+        m.exec(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def _pick(self, qd, menu):
+        menu.close()
+        self._date = date(qd.year(), qd.month(), qd.day())
+        self._refresh()
+        self.picked.emit(self._date)
+
+
 class SharedPlanDialog(QDialog):
     """Add a subscription: solo (just me), a cost split with others, or income
     others pay me — with a billing cycle and a member list."""
 
-    _CYCLES = [("Monthly",        {"type": "interval", "every": 1, "unit": "month"}),
+    # Ordered by ascending period so the dropdown reads shortest → longest.
+    _CYCLES = [("Weekly",         {"type": "interval", "every": 1, "unit": "week"}),
+               ("Monthly",        {"type": "interval", "every": 1, "unit": "month"}),
                ("Quarterly",      {"type": "interval", "every": 3, "unit": "month"}),
                ("Every 6 months", {"type": "interval", "every": 6, "unit": "month"}),
-               ("Yearly",         {"type": "interval", "every": 1, "unit": "year"}),
-               ("Weekly",         {"type": "interval", "every": 1, "unit": "week"})]
+               ("Yearly",         {"type": "interval", "every": 1, "unit": "year"})]
 
     # the extra billing-cycle entry that switches to specific days of the month
     _DAYS_LABEL = "Specific days of month…"
+    # Google-style escape hatch: "Repeat every [N] [unit]"
+    _CUSTOM_LABEL = "Custom…"
 
     def __init__(self, parent, currency="$", existing=None):
         super().__init__(parent)
@@ -1929,17 +2125,69 @@ class SharedPlanDialog(QDialog):
         cbox.addWidget(self.amount); row.addLayout(cbox)
         cyb = QVBoxLayout(); cyb.addWidget(label("Billing cycle", T.TEXT_MUTED, 10))
         self.cycle = QComboBox()
-        self.cycle.addItems([c[0] for c in self._CYCLES] + [self._DAYS_LABEL])
+        self.cycle.addItems([c[0] for c in self._CYCLES]
+                            + [self._DAYS_LABEL, self._CUSTOM_LABEL])
+        self.cycle.setCurrentText("Monthly")     # sensible default for a new sub
         self.cycle.currentIndexChanged.connect(self._sync)
         cyb.addWidget(self.cycle); row.addLayout(cyb)
         row.addStretch(1); lay.addLayout(row)
 
-        # specific days-of-month input (shown only for the "Specific days" cycle)
-        self._days_lbl = label("Repeats on these days of the month (e.g. 1, 15)",
-                               T.TEXT_MUTED, 10)
-        self.days_input = QLineEdit(); self.days_input.setPlaceholderText("1, 15")
-        self.days_input.setStyleSheet(self._ist())
-        lay.addWidget(self._days_lbl); lay.addWidget(self.days_input)
+        # custom cadence — Google Calendar's "Repeat every [N] [unit]" row
+        self._custom_host = QWidget()
+        crow = QHBoxLayout(self._custom_host)
+        crow.setContentsMargins(0, 0, 0, 0); crow.setSpacing(8)
+        crow.addWidget(label("Repeat every", T.TEXT, 12))
+        self.custom_every = QSpinBox(); self.custom_every.setRange(1, 99)
+        self.custom_every.setFixedWidth(70)
+        crow.addWidget(self.custom_every)
+        self.custom_unit = QComboBox(); self.custom_unit.addItems(_UNITS)
+        self.custom_unit.setCurrentText("month")
+        crow.addWidget(self.custom_unit); crow.addStretch(1)
+        lay.addWidget(self._custom_host)
+        self.custom_every.valueChanged.connect(self._sync)
+        self.custom_unit.currentIndexChanged.connect(self._sync)
+
+        # weekday chips for weekly cadences — picking one moves the anchor
+        # date to the next such weekday (the rule stays anchor-relative)
+        self._wd_host = QWidget()
+        wrow = QHBoxLayout(self._wd_host)
+        wrow.setContentsMargins(0, 0, 0, 0); wrow.setSpacing(8)
+        wrow.addWidget(label("On", T.TEXT_MUTED, 10))
+        self.weekdays = WeekdayChips()
+        wrow.addWidget(self.weekdays); wrow.addStretch(1)
+        lay.addWidget(self._wd_host)
+        self.weekdays.changed.connect(self._on_weekday)
+
+        # first billing / anchor date — determines *which* day (and month, for
+        # yearly) the cycle lands on.  Opens an on-theme calendar popup.
+        self._date_lbl = label("First billing date", T.TEXT_MUTED, 10)
+        self.date_field = DateField(date.today())
+        self.date_field.picked.connect(lambda _=None: self._sync())
+        drow = QHBoxLayout(); drow.setSpacing(10)
+        dcol = QVBoxLayout(); dcol.addWidget(self._date_lbl)
+        dcol.addWidget(self.date_field); drow.addLayout(dcol); drow.addStretch(1)
+        lay.addLayout(drow)
+        self._date_hint = label("", T.TEXT_DIM, 10); self._date_hint.setWordWrap(True)
+        lay.addWidget(self._date_hint)
+
+        # specific days-of-month grid (shown only for the "Specific days" cycle)
+        self._days_lbl = label("Repeats monthly on these days", T.TEXT_MUTED, 10)
+        self.days_grid = QWidget()
+        dgrid = QGridLayout(self.days_grid)
+        dgrid.setContentsMargins(0, 0, 0, 0); dgrid.setSpacing(3)
+        self.day_btns = {}
+        for dnum in range(1, 32):
+            b = QPushButton(str(dnum)); b.setCheckable(True)
+            b.setFixedSize(30, 24); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
+                f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
+                f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
+                f"border-color:{T.ACCENT};}}")
+            b.clicked.connect(self._sync)
+            self.day_btns[dnum] = b
+            dgrid.addWidget(b, (dnum - 1) // 7, (dnum - 1) % 7)
+        lay.addWidget(self._days_lbl); lay.addWidget(self.days_grid)
 
         lay.addWidget(label("Type", T.TEXT_MUTED, 10))
         self.kind = QComboBox(); self.kind.addItems(
@@ -1999,10 +2247,53 @@ class SharedPlanDialog(QDialog):
     def _on_days(self):
         return self.cycle.currentIndex() == len(self._CYCLES)
 
+    def _on_custom(self):
+        return self.cycle.currentIndex() == len(self._CYCLES) + 1
+
+    def _every_unit(self):
+        """(every, unit) for the currently selected non-days cadence."""
+        if self._on_custom():
+            return (int(self.custom_every.value()),
+                    _UNITS[self.custom_unit.currentIndex()])
+        c = self._CYCLES[self.cycle.currentIndex()][1]
+        return int(c["every"]), c["unit"]
+
+    def _on_weekday(self, wd):
+        """Chip picked → shift the anchor to the next such weekday."""
+        d = self.date_field.date()
+        self.date_field.set_date(d + timedelta(days=(wd - d.weekday()) % 7))
+        self._sync()
+
     def _sync(self):
         on_days = self._on_days()
+        on_custom = self._on_custom()
         self._days_lbl.setVisible(on_days)
-        self.days_input.setVisible(on_days)
+        self.days_grid.setVisible(on_days)
+        self._custom_host.setVisible(on_custom)
+        if on_custom:
+            # pluralise units to match N, Google-style ("2 weeks")
+            n = int(self.custom_every.value())
+            for i, u in enumerate(_UNITS):
+                self.custom_unit.setItemText(i, u + ("s" if n != 1 else ""))
+        # date field is meaningless for "specific days of month" (that rule
+        # carries its own days); hide it there, otherwise explain the anchor.
+        self._date_lbl.setVisible(not on_days)
+        self.date_field.setVisible(not on_days)
+        anchor = self.date_field.date()
+        if on_days:
+            days = sorted(d for d, b in self.day_btns.items() if b.isChecked())
+            self._wd_host.setVisible(False)
+            self._date_hint.setText(_freq_summary(1, "month", days=days) if days
+                                    else "Pick one or more billing days.")
+        else:
+            every, unit = self._every_unit()
+            # weekday chips only make sense for a weekly cadence
+            self._wd_host.setVisible(unit == "week")
+            if unit == "week":
+                self.weekdays.set_weekday(anchor.weekday())
+            self._date_hint.setText(
+                _freq_summary(every, unit, anchor=anchor)
+                + f" · starts {anchor.strftime('%d %b %Y')}")
         solo = self._kind() == "solo"
         for w in (self._srow_host, self._mem_lbl, self.members):
             w.setVisible(not solo)
@@ -2016,29 +2307,44 @@ class SharedPlanDialog(QDialog):
 
     def _recurrence(self):
         if self._on_days():
-            days = []
-            for tok in self.days_input.text().replace(";", ",").split(","):
-                tok = tok.strip()
-                if tok.isdigit() and 1 <= int(tok) <= 31:
-                    days.append(int(tok))
-            days = sorted(set(days))
+            days = sorted(d for d, b in self.day_btns.items() if b.isChecked())
             if not days:
                 return None
             return {"type": "days", "days": days}
+        if self._on_custom():
+            return {"type": "interval", "every": int(self.custom_every.value()),
+                    "unit": _UNITS[self.custom_unit.currentIndex()]}
         return self._CYCLES[self.cycle.currentIndex()][1]
 
     def _prefill(self, d):
         self.name.setText(d.get("name", ""))
         self.amount.setValue(float(d.get("amount", 0.0)))
+        start = d.get("start")
+        if start:
+            try:
+                self.date_field.set_date(date.fromisoformat(start))
+            except ValueError:
+                pass
         rec = d.get("recurrence") or {}
         if rec.get("type") == "days":
             self.cycle.setCurrentIndex(len(self._CYCLES))
-            self.days_input.setText(", ".join(str(x) for x in rec.get("days", [])))
+            for x in rec.get("days", []):
+                if x in self.day_btns:
+                    self.day_btns[x].setChecked(True)
+        elif not rec:
+            self.cycle.setCurrentText("Monthly")
         else:
             idx = next((i for i, (_, c) in enumerate(self._CYCLES)
                         if c.get("every") == rec.get("every")
-                        and c.get("unit") == rec.get("unit")), 0)
-            self.cycle.setCurrentIndex(idx)
+                        and c.get("unit") == rec.get("unit")), None)
+            if idx is None:              # non-preset cadence → Custom…
+                self.cycle.setCurrentIndex(len(self._CYCLES) + 1)
+                self.custom_every.setValue(int(rec.get("every", 1)))
+                unit = rec.get("unit", "month")
+                if unit in _UNITS:
+                    self.custom_unit.setCurrentIndex(_UNITS.index(unit))
+            else:
+                self.cycle.setCurrentIndex(idx)
         shared = d.get("shared")
         if not shared:
             self.kind.setCurrentIndex(0)
@@ -2055,17 +2361,26 @@ class SharedPlanDialog(QDialog):
                 lines.append(m.get("name", ""))
         self.members.setPlainText("\n".join(lines))
 
+    def _invalid(self, w, msg):
+        """Focus the offending field and explain what's missing."""
+        from PyQt6.QtWidgets import QToolTip
+        w.setFocus()
+        QToolTip.showText(w.mapToGlobal(w.rect().bottomLeft()), msg, w)
+
     def _save(self):
         name = self.name.text().strip()
         if not name:
-            self.name.setFocus(); return
+            self._invalid(self.name, "Enter a name."); return
         rec = self._recurrence()
         if rec is None and self._on_days():
-            self.days_input.setFocus(); return
+            self._invalid(self.days_grid,
+                          "Pick at least one billing day."); return
         kind = self._kind()
+        start_iso = self.date_field.date().isoformat()
         if kind == "solo":
             self._result = {"name": name, "amount": float(self.amount.value()),
-                            "solo": True, "type": "expense", "recurrence": rec}
+                            "solo": True, "type": "expense", "recurrence": rec,
+                            "start": start_iso}
             self.accept(); return
         custom = self._is_custom()
         members = []
@@ -2081,11 +2396,12 @@ class SharedPlanDialog(QDialog):
             else:
                 members.append({"name": line.split("=")[0].strip()})
         if not members:
-            self.members.setFocus(); return
+            self._invalid(self.members,
+                          "Add at least one member (one name per line)."); return
         self._result = {
             "name": name, "amount": float(self.amount.value()),
             "type": "expense" if kind == "split" else "income",
-            "recurrence": rec, "solo": False,
+            "recurrence": rec, "solo": False, "start": start_iso,
             "shared": {
                 "split": "custom" if custom else "even",
                 "owner_pays": (bool(self.owner.isChecked()) and not custom
