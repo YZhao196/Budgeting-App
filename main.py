@@ -32,8 +32,8 @@ import theme as T
 from widgets import (
     AreaChart, BoundedScroll, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
-    LedgerCard, LineChart, MetricTile, PredictedIncomeCard, ProgressBar,
-    SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
+    LedgerCard, LineChart, MetricTile, PersonDialog, PredictedIncomeCard,
+    ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
     SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, hsep,
     label, money, repeat_label, tag_chip,
 )
@@ -2347,9 +2347,19 @@ class SubscriptionsPage(QWidget):
 
     # -- people: registry + per-person subscription selection ------------- #
     def _add_person(self):
-        nm = self._person_input.text().strip()
-        if nm:
-            self.dm.add_person(nm)
+        res = PersonDialog.create(self)
+        if res:
+            self.dm.add_person(res["name"], email=res["email"],
+                               phone=res["phone"], note=res["note"])
+            self.on_change()
+
+    def _edit_person(self, pid):
+        person = next((p for p in self.dm.people() if p.get("id") == pid), None)
+        if not person:
+            return
+        res = PersonDialog.edit(self, person)
+        if res:
+            self.dm.update_person(pid, **res)
             self.on_change()
 
     def _remove_person(self, pid):
@@ -2406,15 +2416,13 @@ class SubscriptionsPage(QWidget):
 
         ac, al = card()
         arow = QHBoxLayout(); arow.setSpacing(8)
-        self._person_input = QLineEdit()
-        self._person_input.setPlaceholderText("New person's name")
-        self._person_input.setStyleSheet(
-            f"background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
-        self._person_input.returnPressed.connect(self._add_person)
-        addb = _button("Add person", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
+        arow.addWidget(label("Keep contact details with each payee so "
+                             "reminders and settle-ups are one click away.",
+                             T.TEXT_DIM, 11))
+        arow.addStretch(1)
+        addb = _button("+ Add person", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         addb.clicked.connect(self._add_person)
-        arow.addWidget(self._person_input, 1); arow.addWidget(addb)
+        arow.addWidget(addb)
         al.addLayout(arow)
         self.blay.addWidget(ac)
         self._people_status = label("", T.GREEN, 11)
@@ -2470,11 +2478,20 @@ class SubscriptionsPage(QWidget):
                 cpy.clicked.connect(lambda _=False, nm=name, inf=info:
                                     self._copy_reminder(nm, inf))
                 head.addWidget(cpy)
+            ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
+            ed.setToolTip("Edit contact details")
+            ed.clicked.connect(lambda _=False, pid=person["id"]: self._edit_person(pid))
+            head.addWidget(ed)
             rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
             rm.setToolTip("Remove person")
             rm.clicked.connect(lambda _=False, pid=person["id"]: self._remove_person(pid))
             head.addWidget(rm)
             cl.addLayout(head)
+            contact = "  ·  ".join(x for x in (person.get("email"),
+                                               person.get("phone"),
+                                               person.get("note")) if x)
+            if contact:
+                cl.addWidget(label(contact, T.TEXT_DIM, 10))
             cl.addWidget(hsep())
 
             if not shared_subs:

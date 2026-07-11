@@ -1083,17 +1083,47 @@ class ItemStore:
         if not any(p.get("name", "").lower() == name.lower() for p in ppl):
             ppl.append({"id": new_id(), "name": name, "note": ""})
 
-    def add_person(self, name: str) -> dict | None:
+    def add_person(self, name: str, email: str = "", phone: str = "",
+                   note: str = "") -> dict | None:
+        """Add a payee record with personal details. If the name already
+        exists, fill in any blank contact fields instead of duplicating."""
         name = (name or "").strip()
         if not name:
             return None
         existing = next((p for p in self.people()
                          if p.get("name", "").lower() == name.lower()), None)
         if existing:
+            for k, v in (("email", email), ("phone", phone), ("note", note)):
+                if v and not existing.get(k):
+                    existing[k] = v
+            self.save()
             return existing
         self._ensure_person(name)
+        person = self.people()[-1]
+        person.update({"email": email or "", "phone": phone or "",
+                       "note": note or ""})
         self.save()
-        return self.people()[-1]
+        return person
+
+    def update_person(self, person_id: str, **fields) -> None:
+        """Edit a payee's stored details (name/email/phone/note). Renames
+        propagate to every shared plan's member list."""
+        person = next((p for p in self.people()
+                       if p.get("id") == person_id), None)
+        if person is None:
+            return
+        old_name = person.get("name", "")
+        for k in ("name", "email", "phone", "note"):
+            if k in fields and fields[k] is not None:
+                person[k] = str(fields[k]).strip()
+        new_name = person.get("name", "")
+        if new_name and new_name != old_name:
+            for defn in self.items():
+                sh = defn.get("shared")
+                for m in (sh or {}).get("members", []) or []:
+                    if m.get("name") == old_name:
+                        m["name"] = new_name
+        self.save()
 
     def remove_person(self, person_id: str) -> None:
         ppl = self.people()

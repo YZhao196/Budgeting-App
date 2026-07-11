@@ -276,6 +276,31 @@ def test_account_store_ops():
     assert s.accounts() == []
 
 
+def test_add_person_stores_contact_details():
+    s = _store_with([])
+    p = s.add_person("Sam", email="sam@x.com", phone="0400", note="housemate")
+    assert p["email"] == "sam@x.com" and p["phone"] == "0400"
+    assert p["note"] == "housemate" and p["id"]
+    # same name again: no duplicate; blank fields get filled, set ones kept
+    p2 = s.add_person("sam", email="new@x.com", note="")
+    assert len(s.people()) == 1
+    assert p2["email"] == "sam@x.com"          # existing value wins
+
+
+def test_update_person_renames_in_shared_plans():
+    sub = dm.item("Spotify", 27, type="expense", start="2026-01-01",
+                  recurrence=_MO,
+                  shared={"split": "even", "owner_pays": False,
+                          "members": [{"name": "Sam"}]})
+    s = _store_with([sub])
+    p = s.add_person("Sam", email="sam@x.com")
+    s.update_person(p["id"], name="Samuel", phone="0400")
+    got = s.people()[0]
+    assert got["name"] == "Samuel" and got["phone"] == "0400"
+    assert got["email"] == "sam@x.com"          # untouched field survives
+    assert sub["shared"]["members"][0]["name"] == "Samuel"
+
+
 def test_upcoming_renewals():
     today = date(2026, 6, 24)
     netflix = dm.item("Netflix", 20, type="expense", start="2026-06-26",

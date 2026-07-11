@@ -2084,15 +2084,91 @@ class DateField(QPushButton):
         self.picked.emit(self._date)
 
 
+class PersonDialog(QDialog):
+    """Create / edit a payee record — the personal details stored as JSON on
+    the person entry in the store ({id, name, email, phone, note})."""
+
+    def __init__(self, parent, person=None):
+        super().__init__(parent)
+        self._editing = person is not None
+        self.setWindowTitle("Edit person" if self._editing else "Add person")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumWidth(340)
+        self._result = None
+        p = person or {}
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
+        lay.addWidget(label("Edit person" if self._editing else "Add person",
+                            T.TEXT, 15, bold=True))
+
+        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
+               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+        self.name = QLineEdit(p.get("name", ""))
+        self.name.setPlaceholderText("Name (required)")
+        self.email = QLineEdit(p.get("email", ""))
+        self.email.setPlaceholderText("e.g. sam@example.com")
+        self.phone = QLineEdit(p.get("phone", ""))
+        self.phone.setPlaceholderText("e.g. 0400 000 000")
+        self.note = QLineEdit(p.get("note", ""))
+        self.note.setPlaceholderText("e.g. housemate, pays via beem")
+        for cap, w in (("Name", self.name), ("Email", self.email),
+                       ("Phone", self.phone), ("Note", self.note)):
+            w.setStyleSheet(ist)
+            lay.addWidget(label(cap, T.TEXT_MUTED, 10)); lay.addWidget(w)
+
+        arow = QHBoxLayout()
+        cancel = QPushButton("Cancel"); save = QPushButton(
+            "Save changes" if self._editing else "Add person")
+        for b, fg, bg, border in ((cancel, T.TEXT_MUTED, T.BG_INPUT, T.BORDER),
+                                  (save, T.GREEN, T.GREEN_BG, T.GREEN_BORDER)):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
+                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"QPushButton:hover{{border-color:{fg};}}")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        arow.addStretch(1); arow.addWidget(cancel); arow.addWidget(save)
+        lay.addSpacing(4); lay.addLayout(arow)
+        self.name.setFocus()
+
+    def _save(self):
+        nm = self.name.text().strip()
+        if not nm:
+            self.name.setFocus(); return
+        self._result = {"name": nm,
+                        "email": self.email.text().strip(),
+                        "phone": self.phone.text().strip(),
+                        "note": self.note.text().strip()}
+        self.accept()
+
+    @staticmethod
+    def create(parent):
+        dlg = PersonDialog(parent)
+        dlg.move(QCursor.pos())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg._result
+
+    @staticmethod
+    def edit(parent, person):
+        dlg = PersonDialog(parent, person)
+        dlg.move(QCursor.pos())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg._result
+
+
 class SharedPlanDialog(QDialog):
     """Add a subscription: solo (just me), a cost split with others, or income
     others pay me — with a billing cycle and a member list."""
 
     # Ordered by ascending period so the dropdown reads shortest → longest.
+    # Anything else (e.g. every 6 months) lives under "Custom…".
     _CYCLES = [("Weekly",         {"type": "interval", "every": 1, "unit": "week"}),
                ("Monthly",        {"type": "interval", "every": 1, "unit": "month"}),
                ("Quarterly",      {"type": "interval", "every": 3, "unit": "month"}),
-               ("Every 6 months", {"type": "interval", "every": 6, "unit": "month"}),
                ("Yearly",         {"type": "interval", "every": 1, "unit": "year"})]
 
     # the extra billing-cycle entry that switches to specific days of the month
@@ -2199,8 +2275,13 @@ class SharedPlanDialog(QDialog):
         self._split_lbl = label("Split", T.TEXT_MUTED, 10)
         self.split = QComboBox(); self.split.addItems(["Even split", "Custom amounts"])
         self.split.currentIndexChanged.connect(self._sync)
-        self.owner = QCheckBox("Count me as a payer too")
+        self.owner = QCheckBox("I pay a share too")
+        self.owner.setToolTip(
+            "Checked: the cost is split between you and the members.\n"
+            "Unchecked: the members cover the whole cost between them\n"
+            "and simply reimburse you.")
         self.owner.setStyleSheet(f"color:{T.TEXT_MUTED};")
+        self.owner.toggled.connect(lambda _=False: self._sync())
         srow.addWidget(self._split_lbl); srow.addWidget(self.split)
         srow.addWidget(self.owner); srow.addStretch(1)
         self._srow_host = QWidget(); self._srow_host.setLayout(srow)
@@ -2210,6 +2291,7 @@ class SharedPlanDialog(QDialog):
         lay.addWidget(self._mem_lbl)
         self.members = QPlainTextEdit(); self.members.setStyleSheet(self._ist())
         self.members.setFixedHeight(90)
+        self.members.textChanged.connect(self._sync)   # keep split hint's count live
         lay.addWidget(self.members)
         self.hint = label("", T.TEXT_DIM, 10); self.hint.setWordWrap(True)
         lay.addWidget(self.hint)
@@ -2301,9 +2383,22 @@ class SharedPlanDialog(QDialog):
             self.hint.setText("A subscription only you pay.")
             return
         self.owner.setVisible(self._kind() == "split" and not self._is_custom())
-        self.hint.setText("Custom: “Name = amount” per line, e.g.  Sam = 9.00"
-                          if self._is_custom()
-                          else "Even: one name per line; amount divided equally.")
+        if self._is_custom():
+            self.hint.setText("Custom: “Name = amount” per line, e.g.  Sam = 9.00")
+        elif self._kind() == "split":
+            n = len([ln for ln in self.members.toPlainText().splitlines()
+                     if ln.strip()])
+            if self.owner.isChecked():
+                ways = f"{n + 1} ways (members + you)" if n else "members + you"
+                self.hint.setText(
+                    f"Even: one name per line. Cost splits {ways} — "
+                    f"you pay one share as well.")
+            else:
+                self.hint.setText(
+                    "Even: one name per line. Members cover the whole cost "
+                    "between them — they reimburse you in full.")
+        else:
+            self.hint.setText("Even: one name per line; amount divided equally.")
 
     def _recurrence(self):
         if self._on_days():
