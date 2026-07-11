@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget, QWidgetAction,
+    QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 import backend as B
@@ -2542,6 +2542,14 @@ class StatBox(QFrame):
         self.amt.setText(text)
 
 
+def _retain_size(widget):
+    """Keep a hidden widget's layout space reserved so toggling its visibility
+    doesn't reflow (grow/shrink) the surrounding card."""
+    policy = widget.sizePolicy()
+    policy.setRetainSizeWhenHidden(True)
+    widget.setSizePolicy(policy)
+
+
 class SummaryCard(QFrame):
     def __init__(self, manager, doc, year, month, today):
         super().__init__()
@@ -2571,9 +2579,11 @@ class SummaryCard(QFrame):
         root.addWidget(self.hero)
         self._vs_avg_lbl = label("", T.TEXT_DIM, 11)
         self._vs_avg_lbl.setVisible(False)
+        _retain_size(self._vs_avg_lbl)
         root.addWidget(self._vs_avg_lbl)
         self._bills_lbl = label("", T.TEXT_DIM, 11)
         self._bills_lbl.setVisible(False)
+        _retain_size(self._bills_lbl)
         root.addWidget(self._bills_lbl)
         root.addSpacing(10)
 
@@ -2611,6 +2621,7 @@ class SummaryCard(QFrame):
         self._deficit_rate = label("", T.RED_BRIGHT, 12, bold=True)
         _dl.addWidget(self._deficit_rate)
         self._deficit_w.setVisible(False)
+        _retain_size(self._deficit_w)
         root.addWidget(self._deficit_w)
 
         root.addSpacing(12); root.addWidget(hsep()); root.addSpacing(10)
@@ -2623,6 +2634,11 @@ class SummaryCard(QFrame):
         root.addLayout(self.budget_box)
 
         self.refresh()
+        # Lock the slab's height once, from its fully-populated first layout,
+        # so later state changes (deficit banner, vs-avg comparison, bills
+        # strip, tab switches) can never resize it — a solid block, not one
+        # that grows/shrinks as content toggles.
+        self.setFixedHeight(self.sizeHint().height())
 
     def set_context(self, doc, year, month):
         self.doc, self.year, self.month = doc, year, month
