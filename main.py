@@ -35,7 +35,7 @@ from widgets import (
     LedgerCard, LineChart, MetricTile, PersonDialog, PredictedIncomeCard,
     ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
     SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, hsep,
-    label, money, repeat_label, tag_chip,
+    label, money, repeat_label, retain_size, tag_chip,
 )
 
 
@@ -113,11 +113,14 @@ class OverviewPage(QWidget):
         bly.addWidget(label("Budget vs actual — top 5", T.TEXT_MUTED, 11))
         self.budget_mini = GroupedBarChart()
         bly.addWidget(self.budget_mini)
+        retain_size(self.budget_card)   # hiding it (no budget data) mustn't
+                                        # shove chart/predicted below it
         rlay.addWidget(self.summary)
-        rlay.addWidget(self.chart)
+        rlay.addWidget(self.chart, 1)   # the one card that grows/shrinks with
+                                        # the window, mirroring the ledger
+                                        # lists on the left (see _equalize_lists)
         rlay.addWidget(self.predicted)
         rlay.addWidget(self.budget_card)
-        rlay.addStretch(1)
         self._refresh_budget_mini()
 
         main_row.addWidget(self.income_card, 1, Qt.AlignmentFlag.AlignTop)

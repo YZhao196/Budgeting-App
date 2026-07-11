@@ -2542,9 +2542,11 @@ class StatBox(QFrame):
         self.amt.setText(text)
 
 
-def _retain_size(widget):
+def retain_size(widget):
     """Keep a hidden widget's layout space reserved so toggling its visibility
-    doesn't reflow (grow/shrink) the surrounding card."""
+    doesn't reflow (grow/shrink) the surrounding card. Public — reused across
+    modules (e.g. main.py's OverviewPage) wherever a card is conditionally
+    hidden but shouldn't shove its siblings when it disappears."""
     policy = widget.sizePolicy()
     policy.setRetainSizeWhenHidden(True)
     widget.setSizePolicy(policy)
@@ -2579,11 +2581,11 @@ class SummaryCard(QFrame):
         root.addWidget(self.hero)
         self._vs_avg_lbl = label("", T.TEXT_DIM, 11)
         self._vs_avg_lbl.setVisible(False)
-        _retain_size(self._vs_avg_lbl)
+        retain_size(self._vs_avg_lbl)
         root.addWidget(self._vs_avg_lbl)
         self._bills_lbl = label("", T.TEXT_DIM, 11)
         self._bills_lbl.setVisible(False)
-        _retain_size(self._bills_lbl)
+        retain_size(self._bills_lbl)
         root.addWidget(self._bills_lbl)
         root.addSpacing(10)
 
@@ -2621,7 +2623,7 @@ class SummaryCard(QFrame):
         self._deficit_rate = label("", T.RED_BRIGHT, 12, bold=True)
         _dl.addWidget(self._deficit_rate)
         self._deficit_w.setVisible(False)
-        _retain_size(self._deficit_w)
+        retain_size(self._deficit_w)
         root.addWidget(self._deficit_w)
 
         root.addSpacing(12); root.addWidget(hsep()); root.addSpacing(10)
