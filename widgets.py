@@ -2553,6 +2553,18 @@ def retain_size(widget):
 
 
 class SummaryCard(QFrame):
+    """The Overview page's P&L slab. Stays at its full natural height
+    whenever the window has room for it (the common case — "solid", never
+    resizes just because content toggles). Only once the window shrinks
+    close to the app's enforced minimum height does it need to get shorter;
+    rather than scrolling internally (which turned out to render unreliably
+    off-screen/headless, and isn't a great look for a dashboard slab
+    anyway), it sheds its least-essential sections outright, in order:
+    the weekly P&L breakdown first, then target/savings — both of which
+    are duplicated or derivable elsewhere in the app (budget-vs-actual
+    card, Analytics). The tabs, hero P&L value and incoming/outgoing boxes
+    are never hidden."""
+
     def __init__(self, manager, doc, year, month, today):
         super().__init__()
         self.dm, self.doc = manager, doc
@@ -2594,21 +2606,26 @@ class SummaryCard(QFrame):
         self.box_out = StatBox("Outgoing", "", T.RED, T.RED_BG, T.RED_BORDER)
         boxes.addWidget(self.box_in); boxes.addWidget(self.box_out)
         root.addLayout(boxes)
-        root.addSpacing(12); root.addWidget(hsep()); root.addSpacing(10)
 
+        # --- collapsible section: target P&L + savings rate --------------
+        self._targets_section = QWidget()
+        tsec = QVBoxLayout(self._targets_section)
+        tsec.setContentsMargins(0, 0, 0, 0); tsec.setSpacing(0)
+        tsec.addSpacing(12); tsec.addWidget(hsep()); tsec.addSpacing(10)
         tgt = QHBoxLayout()
         tgt.addWidget(label("Target P&L", T.TEXT_MUTED, 12))
         tgt.addStretch(1)
         self.target_lbl = label("", T.TEXT, 12, bold=True)
         tgt.addWidget(self.target_lbl)
-        root.addLayout(tgt)
-        root.addSpacing(6)
+        tsec.addLayout(tgt)
+        tsec.addSpacing(6)
         sav = QHBoxLayout()
         sav.addWidget(label("Savings rate:", T.TEXT_MUTED, 12))
         sav.addSpacing(4)
         self.savings_lbl = label("", T.ACCENT, 12, bold=True)
         sav.addWidget(self.savings_lbl); sav.addStretch(1)
-        root.addLayout(sav)
+        tsec.addLayout(sav)
+        root.addWidget(self._targets_section)
 
         root.addSpacing(8)
         self._deficit_w = QFrame()
@@ -2626,20 +2643,71 @@ class SummaryCard(QFrame):
         retain_size(self._deficit_w)
         root.addWidget(self._deficit_w)
 
-        root.addSpacing(12); root.addWidget(hsep()); root.addSpacing(10)
+        # --- collapsible section: weekly P&L breakdown --------------------
+        self._weekly_section = QWidget()
+        wsec = QVBoxLayout(self._weekly_section)
+        wsec.setContentsMargins(0, 0, 0, 0); wsec.setSpacing(0)
+        wsec.addSpacing(12); wsec.addWidget(hsep()); wsec.addSpacing(10)
         self.budget_hdr = label("", T.TEXT_MUTED, 9, bold=True)
         self.budget_hdr.setStyleSheet(
             f"color:{T.TEXT_MUTED}; background:transparent; letter-spacing:1px;")
-        root.addWidget(self.budget_hdr)
-        root.addSpacing(6)
+        wsec.addWidget(self.budget_hdr)
+        wsec.addSpacing(6)
         self.budget_box = QVBoxLayout(); self.budget_box.setSpacing(7)
-        root.addLayout(self.budget_box)
+        wsec.addLayout(self.budget_box)
+        root.addWidget(self._weekly_section)
 
         self.refresh()
-        # Lock the slab's height once, from its fully-populated first layout,
-        # so later state changes (deficit banner, vs-avg comparison, bills
-        # strip, tab switches) can never resize it — a solid block, not one
-        # that grows/shrinks as content toggles.
+        # Lock to the full/ideal height by default — a solid block that
+        # never resizes just because content toggles (deficit banner,
+        # vs-avg comparison, bills strip, tab switches all reserve their
+        # space via retain_size above). set_target_height() below can later
+        # shrink it *only* when the window is genuinely too short for
+        # everything to fit, by collapsing the two sections above rather
+        # than resizing/scrolling — plain show()/hide(), so it renders as
+        # reliably as every other card in the app.
+        self.setFixedHeight(self.natural_height())
+
+    def natural_height(self) -> int:
+        """The slab's full/ideal height (both collapsible sections shown)
+        at its *current* embedded width. Measured live, not cached from
+        construction time, since the card isn't at its real column width
+        until it's actually parented."""
+        was_t = self._targets_section.isVisible()
+        was_w = self._weekly_section.isVisible()
+        self._targets_section.setVisible(True)
+        self._weekly_section.setVisible(True)
+        h = self.sizeHint().height()
+        self._targets_section.setVisible(was_t)
+        self._weekly_section.setVisible(was_w)
+        return h
+
+    def set_target_height(self, available: int):
+        """Adaptively resize toward the available vertical space: stays at
+        the full natural height whenever there's room (the common case —
+        unchanged, still "solid"). Only when the window is too short for
+        the whole right column to fit does it collapse sections, in order
+        (weekly breakdown, then target/savings), rather than the right
+        column overflowing the page — the tabs, hero value and
+        incoming/outgoing boxes are always shown."""
+        available = int(available)
+        full = self.natural_height()
+        if available >= full:
+            self._weekly_section.setVisible(True)
+            self._targets_section.setVisible(True)
+            self.setFixedHeight(full)
+            return
+        self._weekly_section.setVisible(False)
+        self._targets_section.setVisible(True)   # measure this checkpoint
+                                                  # deterministically, not
+                                                  # contaminated by whatever
+                                                  # state a previous resize
+                                                  # left it in
+        without_weekly = self.sizeHint().height()
+        if available >= without_weekly:
+            self.setFixedHeight(without_weekly)
+            return
+        self._targets_section.setVisible(False)
         self.setFixedHeight(self.sizeHint().height())
 
     def set_context(self, doc, year, month):

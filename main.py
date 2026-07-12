@@ -116,9 +116,7 @@ class OverviewPage(QWidget):
         retain_size(self.budget_card)   # hiding it (no budget data) mustn't
                                         # shove chart/predicted below it
         rlay.addWidget(self.summary)
-        rlay.addWidget(self.chart, 1)   # the one card that grows/shrinks with
-                                        # the window, mirroring the ledger
-                                        # lists on the left (see _equalize_lists)
+        rlay.addWidget(self.chart, 1)
         rlay.addWidget(self.predicted)
         rlay.addWidget(self.budget_card)
         self._refresh_budget_mini()
@@ -132,7 +130,7 @@ class OverviewPage(QWidget):
 
         outer.addLayout(main_row, 1)
         outer.addWidget(self.goals_bar)
-        QTimer.singleShot(0, self._equalize_lists)
+        QTimer.singleShot(0, self._equalize_all)
 
     def _refresh_budget_mini(self):
         """Top-5 budgeted categories, bullet-bar style, on the right rail."""
@@ -156,9 +154,26 @@ class OverviewPage(QWidget):
         self.income_card.set_list_height(h)
         self.expense_card.set_list_height(h)
 
+    def _equalize_right(self):
+        """Explicitly size every card in the right column for the window's
+        actual height — mirroring _equalize_lists()'s approach for the
+        ledger cards. The chart keeps its stretch factor and absorbs
+        whatever's left after the slab claims its own height — only the
+        chart's own hard minimum (196) is reserved for it here; at
+        normal/large window sizes this is a no-op and the slab stays at
+        its full natural height, unchanged."""
+        goals_h = self.goals_bar.height() + T.GAP
+        avail = self.height() - 34 - goals_h    # page margins + goals bar
+        other_hard_floor = self.chart.minimumHeight() + 2 * T.GAP
+        self.summary.set_target_height(avail - other_hard_floor)
+
+    def _equalize_all(self):
+        self._equalize_lists()
+        self._equalize_right()
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self._equalize_lists()
+        self._equalize_all()
 
     def set_month(self, doc, year, month):
         self.doc, self.year, self.month = doc, year, month
@@ -170,7 +185,7 @@ class OverviewPage(QWidget):
         self.predicted.set_context(doc, year, month)
         self.goals_bar.refresh(doc.get("currency", "$"))
         self._refresh_budget_mini()
-        QTimer.singleShot(0, self._equalize_lists)   # after layout settles
+        QTimer.singleShot(0, self._equalize_all)   # after layout settles
 
     def set_range(self, range_doc, year, month):
         """ISO-week / sub-month lens: ledgers + headline reflect the range;
@@ -184,7 +199,7 @@ class OverviewPage(QWidget):
         self.predicted.set_context(range_doc, year, month)
         self.goals_bar.refresh(range_doc.get("currency", "$"))
         self._refresh_budget_mini()
-        QTimer.singleShot(0, self._equalize_lists)
+        QTimer.singleShot(0, self._equalize_all)
 
     def refresh(self):
         self.income_card.rebuild()
@@ -195,7 +210,7 @@ class OverviewPage(QWidget):
         self.predicted.set_context(self.doc, self.year, self.month)
         self.goals_bar.refresh(self.doc.get("currency", "$"))
         self._refresh_budget_mini()
-        QTimer.singleShot(0, self._equalize_lists)
+        QTimer.singleShot(0, self._equalize_all)
 
     def set_summary_period(self, period):
         self.summary.set_period(period)
