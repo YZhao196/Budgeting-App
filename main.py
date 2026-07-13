@@ -380,12 +380,45 @@ class _AnalyticsOverview(QWidget):
         trow2, self.tiles2 = tile_row(["Best month", "Worst month", "Months positive", "Income growth"])
         lay.addLayout(trow2)
 
+        # Month-by-month table moved up here: it's the fastest "am I on
+        # track" glance on the page and shouldn't require scrolling past a
+        # dozen charts to reach.
+        cmp_card, clay = card()
+        clay.addWidget(label("Month by month", T.TEXT, 12, bold=True))
+        hdr = QHBoxLayout()
+        for cap, w in [("Month", 90), ("Income", 80), ("Expenses", 80), ("P&L", 70), ("Rate", 50)]:
+            lbl = label(cap, T.TEXT_DIM, 10, bold=True)
+            if w > 0:
+                lbl.setFixedWidth(w)
+            hdr.addWidget(lbl)
+        hdr.addStretch(1)
+        clay.addLayout(hdr)
+        self._cmp_box = QVBoxLayout(); self._cmp_box.setSpacing(3)
+        clay.addLayout(self._cmp_box)
+        lay.addWidget(cmp_card)
+
+        # Budget vs actual + spending by tag: both narrow, both answer
+        # "on budget this month?" — share a row instead of each claiming
+        # the full page width.
+        row_budget = QHBoxLayout(); row_budget.setSpacing(T.GAP)
+
         bva_card, bvly = card()
-        self._bva_title = label("Budget vs actual — this month", T.TEXT_MUTED, 12)
+        self._bva_title = label("Budget vs actual — this month", T.TEXT, 12, bold=True)
         bvly.addWidget(self._bva_title)
         self.bva = GroupedBarChart()
         bvly.addWidget(self.bva)
-        lay.addWidget(bva_card)
+        row_budget.addWidget(bva_card, 1)
+
+        tag_card, tly = card()
+        tly.addWidget(label("Spending by tag — this month", T.TEXT_MUTED, 12))
+        self.tag_box = QVBoxLayout(); self.tag_box.setSpacing(5)
+        tly.addLayout(self.tag_box)
+        tly.addStretch(1)   # paired with the taller budget-vs-actual card;
+                            # push any extra height below the content, not
+                            # between the title and the first row
+        row_budget.addWidget(tag_card, 1)
+
+        lay.addLayout(row_budget)
 
         stk_card, sly = card()
         sly.addWidget(label("Spending composition — last 6 months", T.TEXT_MUTED, 12))
@@ -410,19 +443,31 @@ class _AnalyticsOverview(QWidget):
         fcly.addWidget(self.sankey)
         lay.addWidget(flow_card)
 
+        # Forecast + net worth: same chart family, same minimum height —
+        # a near-term liquid-balance view and a long-run net-worth view
+        # read naturally as a pair rather than stacked one after the other.
+        row_forecast = QHBoxLayout(); row_forecast.setSpacing(T.GAP)
+
         fan_card, fanly = card()
         fanly.addWidget(label("Liquid-balance forecast — next 6 months",
                               T.TEXT_MUTED, 12))
         self.fan = FanChart()
         fanly.addWidget(self.fan)
-        lay.addWidget(fan_card)
+        row_forecast.addWidget(fan_card, 1)
 
         nw_card, nwly = card()
         self._nw_title = label("Net worth — history", T.TEXT_MUTED, 12)
         nwly.addWidget(self._nw_title)
         self.area = AreaChart()
         nwly.addWidget(self.area)
-        lay.addWidget(nw_card)
+        row_forecast.addWidget(nw_card, 1)
+
+        lay.addLayout(row_forecast)
+
+        # P&L trend next to its own two inputs (income, expenses): the
+        # comparison is the point, so put them side by side instead of
+        # making the reader scroll from one to the other.
+        row_trend = QHBoxLayout(); row_trend.setSpacing(T.GAP)
 
         self._trend_label = label("P&L vs target — last 5 months  ·  click a point to filter breakdown",
                                   T.TEXT_MUTED, 12)
@@ -431,14 +476,20 @@ class _AnalyticsOverview(QWidget):
         self.trend = LineChart(); self.trend.setMinimumHeight(210)
         self.trend.clicked_idx.connect(self._on_trend_click)
         tlay.addWidget(self.trend)
-        lay.addWidget(trend)
+        row_trend.addWidget(trend, 1)
 
         inc_exp_card, iely = card()
         iely.addWidget(label("Income vs Expenses — all months", T.TEXT_MUTED, 12))
         self.inc_exp_chart = LineChart()
         self.inc_exp_chart.setMinimumHeight(180)
         iely.addWidget(self.inc_exp_chart)
-        lay.addWidget(inc_exp_card)
+        row_trend.addWidget(inc_exp_card, 1)
+
+        lay.addLayout(row_trend)
+
+        # Predicted income (a forward look) next to plan-vs-actual (a
+        # backward check) — paired rather than stacked.
+        row_pred = QHBoxLayout(); row_pred.setSpacing(T.GAP)
 
         pred_card, pely = card()
         pely.addWidget(label("Predicted Income — next 6 months (recurring sources)",
@@ -450,19 +501,17 @@ class _AnalyticsOverview(QWidget):
         pely.addWidget(label("Recurring sources — next month", T.TEXT_DIM, 10, bold=True))
         self.pred_breakdown_box = QVBoxLayout(); self.pred_breakdown_box.setSpacing(5)
         pely.addLayout(self.pred_breakdown_box)
-        lay.addWidget(pred_card)
-
-        tag_card, tly = card()
-        tly.addWidget(label("Spending by tag — this month", T.TEXT_MUTED, 12))
-        self.tag_box = QVBoxLayout(); self.tag_box.setSpacing(5)
-        tly.addLayout(self.tag_box)
-        lay.addWidget(tag_card)
+        row_pred.addWidget(pred_card, 1)
 
         rec_card, rcly = card()
         rcly.addWidget(label("Plan vs actual — this month", T.TEXT_MUTED, 12))
         self.rec_box = QVBoxLayout(); self.rec_box.setSpacing(5)
         rcly.addLayout(self.rec_box)
-        lay.addWidget(rec_card)
+        rcly.addStretch(1)   # paired with the taller predicted-income card;
+                             # push extra height below the content
+        row_pred.addWidget(rec_card, 1)
+
+        lay.addLayout(row_pred)
 
         cols = QHBoxLayout(); cols.setSpacing(T.GAP)
 
@@ -487,19 +536,6 @@ class _AnalyticsOverview(QWidget):
         cols.addWidget(self.inc_card, 1)
 
         lay.addLayout(cols)
-
-        cmp_card, clay = card()
-        hdr = QHBoxLayout()
-        for cap, w in [("Month", 90), ("Income", 80), ("Expenses", 80), ("P&L", 70), ("Rate", 50)]:
-            lbl = label(cap, T.TEXT_DIM, 10, bold=True)
-            if w > 0:
-                lbl.setFixedWidth(w)
-            hdr.addWidget(lbl)
-        hdr.addStretch(1)
-        clay.addLayout(hdr)
-        self._cmp_box = QVBoxLayout(); self._cmp_box.setSpacing(3)
-        clay.addLayout(self._cmp_box)
-        lay.addWidget(cmp_card)
 
         lay.addStretch(1)
         outer.addWidget(scrollable(content))

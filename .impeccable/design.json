@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T00:00:00Z",
+  "title": "Design System: Budgeting Tool",
+  "extensions": {
+    "colorMeta": {
+      "income-green": {
+        "role": "primary",
+        "displayName": "Income Green",
+        "canonical": "oklch(64% 0.09 152)",
+        "tonalRamp": ["#0f1c14", "#152a1c", "#1c3824", "#2c5236", "#3f6f4c", "#5da876", "#8fc4a3", "#c4e3d0"]
+      },
+      "income-green-bright": {
+        "role": "primary",
+        "displayName": "Income Green Bright",
+        "canonical": "oklch(74% 0.11 152)",
+        "tonalRamp": ["#132a1c", "#1c3d28", "#265136", "#357049", "#4f9068", "#74c490", "#a2dab8", "#d3efdf"]
+      },
+      "expense-terracotta": {
+        "role": "secondary",
+        "displayName": "Expense Terracotta",
+        "canonical": "oklch(64% 0.07 30)",
+        "tonalRamp": ["#1e1310", "#2c1c18", "#3c2621", "#5a352c", "#804a3e", "#b86060", "#d3908c", "#e9c2bd"]
+      },
+      "warning-amber": {
+        "role": "tertiary",
+        "displayName": "Warning Amber",
+        "canonical": "oklch(72% 0.10 65)",
+        "tonalRamp": ["#241a0e", "#352614", "#4a331a", "#6b4926", "#946434", "#c8944a", "#dcb578", "#eedab3"]
+      },
+      "bg-app": {
+        "role": "neutral",
+        "displayName": "App Black",
+        "canonical": "oklch(16% 0 0)",
+        "tonalRamp": ["#0a0a0a", "#111111", "#181818", "#1e1e1e", "#242424", "#2c2c2c", "#383838", "#4a4a4a"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Hero Figure", "purpose": "The single most important number on a screen (P&L hero, net worth headline). Arial Nova Light only." },
+      "headline": { "displayName": "Headline", "purpose": "Metric-tile values and dialog titles." },
+      "title": { "displayName": "Title", "purpose": "Card and section headers." },
+      "body": { "displayName": "Body", "purpose": "Standard row labels, amounts, form fields — the working default." },
+      "label": { "displayName": "Label", "purpose": "Section eyebrows and tab captions, smallest tier, tracked uppercase." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "reveal-ease", "value": "OutCubic, 340ms", "purpose": "Entry-reveal animation on chart bars/segments when data first populates; disabled under reduced-motion (widgets.ANIMATE=False)." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Save / add / confirm actions.",
+      "html": "<button class=\"ds-btn-primary\">Add</button>",
+      "css": ".ds-btn-primary { background: #192219; color: #5da876; border: 1px solid #243824; border-radius: 0; padding: 6px 16px; font-family: 'Arial Nova', Arial, sans-serif; font-size: 12px; font-weight: 400; cursor: pointer; transition: border-color 0.15s; } .ds-btn-primary:hover, .ds-btn-primary:focus-visible { border-color: #5da876; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Cancel / neutral actions.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { background: #0e0e0e; color: #9a9a9a; border: 1px solid #2c2c2c; border-radius: 0; padding: 6px 16px; font-family: 'Arial Nova', Arial, sans-serif; font-size: 12px; cursor: pointer; transition: border-color 0.15s; } .ds-btn-secondary:hover, .ds-btn-secondary:focus-visible { border-color: #9a9a9a; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard panel surface.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">P&amp;L — Last 5 months</div></div>",
+      "css": ".ds-card { background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 0; padding: 16px 14px; } .ds-card-title { color: #9a9a9a; font-family: 'Arial Nova', Arial, sans-serif; font-size: 11px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Editable field.",
+      "html": "<input class=\"ds-input\" placeholder=\"e.g. Netflix\" />",
+      "css": ".ds-input { background: #0e0e0e; color: #d4d4d4; border: 1px solid #2c2c2c; border-radius: 0; padding: 6px 9px; font-family: 'Arial Nova', Arial, sans-serif; font-size: 12px; } .ds-input:focus-visible { border-color: #74c490; outline: none; }"
+    },
+    {
+      "name": "Income Stat Box",
+      "kind": "custom",
+      "refersTo": "stat-box-income",
+      "description": "Incoming/outgoing totals on the Overview P&L slab.",
+      "html": "<div class=\"ds-stat-income\"><div class=\"ds-stat-label\">Incoming</div><div class=\"ds-stat-value\">+$5,880</div></div>",
+      "css": ".ds-stat-income { background: #192219; border: 1px solid #243824; border-radius: 0; padding: 9px 12px; } .ds-stat-income .ds-stat-label { color: #5da876; font-family: 'Arial Nova', Arial, sans-serif; font-size: 11px; } .ds-stat-income .ds-stat-value { color: #5da876; font-family: 'Arial Nova', Arial, sans-serif; font-size: 16px; font-weight: 700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Trading Terminal",
+    "overview": "This is a desk tool, not a lifestyle app. Every screen is a readout: numbers first, chrome second, nothing between the user and the figure they came to check. The palette is deliberately restrained — desaturated sage green, terracotta, and amber sit on near-black, saturated only where a single number needs to earn attention (the hero P&L value). Depth comes from stepped tone, not shadow; corners are square throughout. The system explicitly rejects the rounded, colorful, friendly grammar of consumer finance apps (Mint, YNAB, Monarch) — this should never look like it's trying to be liked. Two views are held to equal visual weight by design: the recurring plan (what should happen) and the bank-reconciled reality (what did happen). Neither gets softer treatment or more decoration than the other; the system's job is to make both trustworthy at a glance.",
+    "keyCharacteristics": [
+      "Flat, zero-radius surfaces stepped by tone, not shadow",
+      "Muted, functional color — never decorative, always paired with a label or position",
+      "One saturated moment per screen (the hero P&L number), everything else restrained",
+      "Dense information layout; no simplification for its own sake",
+      "Hairline 1px borders throughout; hover states brighten border color, nothing glows"
+    ],
+    "rules": [
+      { "name": "The One Saturated Moment Rule", "body": "Every other green in the system is the muted #5da876. Only the hero P&L figure and the net-worth headline get the brighter #74c490 — its rarity is what makes it read as the number that matters most on this screen.", "section": "colors" },
+      { "name": "The Color-Plus Rule", "body": "Green and terracotta never stand alone as the only signal. A ledger row's sign, its column (Incoming vs. Outgoing), and its color always agree.", "section": "colors" },
+      { "name": "The No-Ornament Rule", "body": "Weight and size carry all hierarchy. No italics, no color-as-emphasis on body text, no decorative type anywhere in the system.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Nothing lifts off the surface. A card is a tone step and a hairline border, full stop — never a shadow, never a glow, never on hover either.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do step depth with background tone (#111111 → #1e1e1e → #242424 → #2c2c2c) and a 1px border — never a shadow.",
+      "Do keep every corner at 0px radius, on every component, with no exceptions.",
+      "Do pair every green/red/amber signal with a label or position (column, sign, icon) — color is corroboration, never the only signal.",
+      "Do reserve #74c490 (income-green-bright) for the single hero figure on a screen; every other positive value uses the muted #5da876.",
+      "Do treat hover as a border-color brighten only — no background shift, no shadow, no scale.",
+      "Do default to dense, information-rich layouts; a power-user tool earns the right to show more at once."
+    ],
+    "donts": [
+      "Don't use the rounded, colorful, friendly grammar of consumer finance apps like Mint, YNAB, or Monarch — no rounded corners, no gradients, no soft shadows, no decorative color, anywhere.",
+      "Don't add box-shadow or any glow/lift effect to any component, at rest or on hover.",
+      "Don't use a saturated or bright color as decoration — every color on screen must be reporting a real state.",
+      "Don't treat the recurring-plan view and the bank-reconciled view as primary/secondary — give both equal visual weight and equal polish.",
+      "Don't simplify or hide complexity to make the UI feel friendlier — density is a deliberate choice, not a gap to close.",
+      "Don't dress up bad news (a deficit, an overdue bill, negative net worth) with alarm-style chrome — report it in the same flat visual language as good news."
+    ]
+  }
+}
