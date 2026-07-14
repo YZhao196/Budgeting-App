@@ -4443,13 +4443,22 @@ class MetricTile(QFrame):
 
 class ProgressBar(QWidget):
     """Flat track with a coloured fill (0–1).  Optionally a bullet-style target
-    tick and an overrun segment drawn past 100 % in a warning colour."""
-    def __init__(self, frac=0.0, color=T.ACCENT, height=9, target=None):
+    tick and a bounded overrun cap past 100 %.
+
+    The overrun cap is OPT-IN (``overrun=True``) because "past 100 %" is only
+    *bad* for a spend-vs-budget bar; for a save-toward-target bar, exceeding
+    the target is success and must not be tinted with the loss colour. When
+    enabled it is capped at ~15 % of the width so a large overshoot (e.g.
+    578 % of target) shows a small red sliver at the end, never floods the
+    whole bar over the fill."""
+    def __init__(self, frac=0.0, color=T.ACCENT, height=9, target=None,
+                 overrun=False):
         super().__init__()
         self._raw = max(0.0, frac)
         self._frac = min(1.0, self._raw)
         self._color = color
         self._target = target          # 0–1 position of a target marker, or None
+        self._overrun = overrun
         self.setFixedHeight(height)
 
     def set_frac(self, frac, color=None, target=None):
@@ -4470,15 +4479,17 @@ class ProgressBar(QWidget):
         if self._frac > 0:
             p.setBrush(QColor(self._color))
             p.drawRect(QRectF(0, 0, max(1, w * self._frac), h))
-        # overrun past 100 % (bullet semantics): a red cap on top of the fill
-        if self._raw > 1.0:
-            over = min(1.0, self._raw - 1.0)
+        # overrun cap (opt-in): a small red sliver at the end signalling "over",
+        # bounded to ~15 % of the width so a big overshoot never floods the bar.
+        if self._overrun and self._raw > 1.0:
+            over = min(0.15, self._raw - 1.0)
             oc = QColor(T.RED); oc.setAlpha(200)
             p.setBrush(oc)
             p.drawRect(QRectF(w * (1 - over), 0, w * over, h))
-        # target tick
+        # target tick — inset 1px from each edge so it stays visible even at
+        # target == 1.0 (where it would otherwise sit exactly on the border).
         if self._target is not None and 0 <= self._target <= 1:
-            tx = w * self._target
+            tx = min(w - 1.0, max(1.0, w * self._target))
             p.setPen(QPen(QColor(T.AMBER), 1.6))
             p.drawLine(QPointF(tx, -1), QPointF(tx, h + 1))
 
