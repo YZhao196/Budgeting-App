@@ -30,7 +30,7 @@ import exporters as X
 import importers as IMP
 import theme as T
 from widgets import (
-    AreaChart, BoundedScroll, CalendarHeatmap, ChartCard, ChartLegend,
+    AccountDialog, AreaChart, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, PersonDialog, PredictedIncomeCard,
     ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
@@ -63,6 +63,22 @@ def chip(color, size=10):
     c = QFrame(); c.setFixedSize(size, size)
     c.setStyleSheet(f"background:{color};")
     return c
+
+
+def dot_legend(items):
+    """A compact colour key: items = [(color, text), …] → QHBoxLayout of
+    small swatch + muted label pairs, e.g. under a chart that encodes
+    meaning in colour."""
+    row = QHBoxLayout(); row.setSpacing(6); row.setContentsMargins(0, 2, 0, 0)
+    for color, text in items:
+        sw = QFrame(); sw.setFixedSize(8, 8)
+        sw.setStyleSheet(f"background:{color}; border-radius:4px;")
+        row.addWidget(sw)
+        lbl = label(text, T.TEXT_DIM, 10)
+        row.addWidget(lbl)
+        row.addSpacing(8)
+    row.addStretch(1)
+    return row
 
 
 def tile_row(captions):
@@ -398,10 +414,20 @@ class _AnalyticsOverview(QWidget):
         row_budget = QHBoxLayout(); row_budget.setSpacing(T.GAP)
 
         bva_card, bvly = card()
+        bva_hdr = QHBoxLayout()
         self._bva_title = label("Budget vs actual — this month", T.TEXT, 12, bold=True)
-        bvly.addWidget(self._bva_title)
+        bva_hdr.addWidget(self._bva_title); bva_hdr.addStretch(1)
+        self._bva_edit = Clickable("Set budgets…", T.TEXT_DIM, 11, hover=T.ACCENT)
+        self._bva_edit.clicked.connect(self._edit_budgets)
+        bva_hdr.addWidget(self._bva_edit)
+        bvly.addLayout(bva_hdr)
         self.bva = GroupedBarChart()
         bvly.addWidget(self.bva)
+        self._bva_empty = label(
+            "No category budgets set yet — click “Set budgets…” to enter a monthly "
+            "ideal per category, then this tracks actual vs. budget.", T.TEXT_DIM, 11)
+        self._bva_empty.setWordWrap(True); self._bva_empty.setVisible(False)
+        bvly.addWidget(self._bva_empty)
         row_budget.addWidget(bva_card, 1)
 
         tag_card, tly = card()
@@ -538,6 +564,7 @@ class _AnalyticsOverview(QWidget):
 
     def set_context(self, doc, year, month):
         self.doc = doc
+        self._year, self._month = year, month
         cur = doc.get("currency", "$")
 
         incs, exps, pnls, rates = [], [], [], []
@@ -565,16 +592,22 @@ class _AnalyticsOverview(QWidget):
                                     T.GREEN if pnls[-1] >= 0 else T.RED)
             self.tiles[3].set_spark(rates[-12:], T.ACCENT)
 
-        # budget vs actual bullet rows (biggest first)
+        # budget vs actual bullet rows (biggest first). When no category has a
+        # budget set, every bar would render as a red overrun (actual vs $0) —
+        # misleading — so show an onboarding prompt instead until budgets exist.
         mn_name = dm.MONTH_NAMES[month]
         self._bva_title.setText(f"Budget vs actual — {mn_name}")
         rep_bva = B.budget_report(self.dm.items(), self.dm.transactions(),
                                   year, month)
-        bva_rows = sorted(
-            [(r["name"], r["ideal"], r["actual"]) for r in rep_bva["rows"]
-             if r["ideal"] or r["actual"]],
-            key=lambda r: -max(r[1], r[2]))
-        self.bva.set_data(bva_rows, cur)
+        any_ideal = any(r["ideal"] for r in rep_bva["rows"])
+        self.bva.setVisible(any_ideal)
+        self._bva_empty.setVisible(not any_ideal)
+        if any_ideal:
+            bva_rows = sorted(
+                [(r["name"], r["ideal"], r["actual"]) for r in rep_bva["rows"]
+                 if r["ideal"] or r["actual"]],
+                key=lambda r: -max(r[1], r[2]))
+            self.bva.set_data(bva_rows, cur)
 
         # spending composition — stacked bars + synced legend
         cs = B.category_series(self.dm.items(), year, month, count=6)
@@ -746,6 +779,16 @@ class _AnalyticsOverview(QWidget):
             self._cmp_box.addLayout(row)
 
         self._show_breakdown(doc, year, month)
+
+    def _edit_budgets(self):
+        rep = B.budget_report(self.dm.items(), self.dm.transactions(),
+                              self._year, self._month)
+        rows = [r for r in rep["rows"] if r.get("editable") and r.get("id")]
+        res = BudgetDialog.edit(self, rows, self.doc.get("currency", "$"))
+        if res:
+            for cid, ideal in res.items():
+                self.dm.set_ideal(cid, ideal)
+            self.set_context(self.doc, self._year, self._month)
 
     def _on_trend_click(self, idx: int):
         if not (0 <= idx < len(self._months_series)):
@@ -1065,12 +1108,24 @@ class GoalsPage(QWidget):
                         f"  ·  ~{eta['months']} mo  ({src})")
                 box.addWidget(label(proj, T.TEXT_DIM, 10))
                 if len(eta["projection"]) > 1:
+                    # projection chart collapsed by default — the caption above
+                    # already answers "am I on track"; the chart is opt-in detail
                     chart = LineChart()
                     chart.setFixedHeight(96)
                     chart.setCursor(Qt.CursorShape.ArrowCursor)
                     chart.set_series(eta["projection"], target=g["target"],
                                      fill=True, highlight_last=False,
                                      currency=cur, color=T.SERIES[1])
+                    chart.setVisible(False)
+                    toggle = Clickable("▸ show projection", T.TEXT_DIM, 10,
+                                       hover=T.ACCENT)
+
+                    def _toggle(_=False, ch=chart, tg=toggle):
+                        vis = not ch.isVisible()
+                        ch.setVisible(vis)
+                        tg.setText("▾ hide projection" if vis else "▸ show projection")
+                    toggle.clicked.connect(_toggle)
+                    box.addWidget(toggle)
                     box.addWidget(chart)
             else:
                 box.addWidget(label(
@@ -1374,6 +1429,26 @@ class SettingsPage(QWidget):
         lay.addWidget(icard)
         self._refresh_import_status()
 
+        # ── Net worth accounts ──────────────────────────────────────────── #
+        acard, aly = card()
+        ahdr = QHBoxLayout()
+        ahdr.addWidget(label("Net worth accounts", T.TEXT, 13, bold=True))
+        ahdr.addStretch(1)
+        addacc = _button("+ Add account", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
+        addacc.clicked.connect(self._add_account)
+        ahdr.addWidget(addacc)
+        aly.addLayout(ahdr)
+        aly.addWidget(label(
+            "Cash, savings and investments count as assets; debts and credit cards "
+            "as liabilities. Drives the net-worth chart and the forecast.",
+            T.TEXT_MUTED, 11))
+        self._accounts_box = QVBoxLayout(); self._accounts_box.setSpacing(4)
+        aly.addLayout(self._accounts_box)
+        self._nw_total = label("", T.TEXT, 12, bold=True)
+        aly.addWidget(self._nw_total)
+        lay.addWidget(acard)
+        self._refresh_accounts()
+
         # ── Categorisation rules ────────────────────────────────────────── #
         rcard, rly = card()
         rly.addWidget(label("Categorisation rules", T.TEXT, 13, bold=True))
@@ -1408,6 +1483,7 @@ class SettingsPage(QWidget):
         krow.addWidget(label("API key", T.TEXT_MUTED, 11))
         self.basiq_key = QLineEdit(st.get("basiq_api_key", ""))
         self.basiq_key.setPlaceholderText("Basiq API key")
+        self.basiq_key.setEchoMode(QLineEdit.EchoMode.Password)   # secret — don't show
         self.basiq_key.setStyleSheet(
             f"background:{T.BG_INPUT}; color:{T.TEXT}; border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
         krow.addWidget(self.basiq_key, 1)
@@ -1567,6 +1643,73 @@ class SettingsPage(QWidget):
         lbl.setText(text)
         lbl.setStyleSheet(f"color:{color}; background:transparent;")
         QTimer.singleShot(4000, lambda: lbl.text() == text and lbl.setText(""))
+
+    # -- net-worth accounts ---------------------------------------------- #
+    _ACC_KIND_LABEL = {"cash": "Cash", "savings": "Savings",
+                       "investment": "Investment", "debt": "Debt",
+                       "credit": "Credit"}
+
+    def _cur(self):
+        return self.dm.currency() if hasattr(self.dm, "currency") else "$"
+
+    def _refresh_accounts(self):
+        clear_layout(self._accounts_box)
+        cur = self._cur()
+        accts = self.dm.accounts()
+        if not accts:
+            self._accounts_box.addWidget(label(
+                "No accounts yet — add one to track net worth.", T.TEXT_DIM, 11))
+            self._nw_total.setText("")
+            return
+        for a in accts:
+            self._accounts_box.addLayout(self._account_row(a, cur))
+        nw = B.net_worth(accts)
+        col = T.GREEN if nw["net"] >= 0 else T.RED
+        self._nw_total.setText(f"Net worth  {money(nw['net'], cur, signed=False)}")
+        self._nw_total.setStyleSheet(f"color:{col}; background:transparent;")
+
+    def _account_row(self, a, cur):
+        liab = a.get("kind") in ("debt", "credit")
+        row = QHBoxLayout(); row.setSpacing(8)
+        row.addWidget(label(a.get("name", ""), T.TEXT, 12))
+        row.addWidget(label(self._ACC_KIND_LABEL.get(a.get("kind", "cash"),
+                                                      a.get("kind", "")), T.TEXT_DIM, 10))
+        row.addStretch(1)
+        bal = float(a.get("balance", 0.0))
+        row.addWidget(label(("-" if liab else "") + money(bal, cur, signed=False),
+                            T.RED if liab else T.GREEN, 12, bold=True))
+        ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
+        ed.setToolTip("Edit account")
+        ed.clicked.connect(lambda _=False, ac=a: self._edit_account(ac))
+        rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
+        rm.setToolTip("Remove account")
+        rm.clicked.connect(lambda _=False, ac=a: self._remove_account(ac))
+        row.addSpacing(6); row.addWidget(ed); row.addWidget(rm)
+        return row
+
+    def _add_account(self):
+        res = AccountDialog.create(self, self._cur())
+        if res:
+            self.dm.add_account(res["name"], res["kind"], res["balance"])
+            self._refresh_accounts(); self.on_change()
+
+    def _edit_account(self, a):
+        res = AccountDialog.edit(self, a, self._cur())
+        if res:
+            self.dm.update_account(a["id"], name=res["name"], kind=res["kind"],
+                                   balance=res["balance"])
+            self._refresh_accounts(); self.on_change()
+
+    def _remove_account(self, a):
+        from PyQt6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+                self, "Remove account",
+                f"Remove {a.get('name', 'this account')}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self.dm.remove_account(a["id"])
+        self._refresh_accounts(); self.on_change()
 
     def _refresh_import_status(self):
         # neutral colour — clears any leftover red/amber from a previous import
@@ -2127,6 +2270,9 @@ class SubscriptionsPage(QWidget):
         heatmap.set_month(self.year, self.month, spend, due_days,
                           income_days, today=date.today(), currency=cur)
         hml.addWidget(heatmap)
+        hml.addLayout(dot_legend([
+            (T.AMBER, "bill due"), (T.GREEN, "income"),
+            (T.RED, "spend (shaded)"), (T.GREEN_BRIGHT, "today")]))
         self.blay.addWidget(hm_card)
 
         # renewal timeline — next 60 days
@@ -2137,6 +2283,10 @@ class SubscriptionsPage(QWidget):
             timeline = SubscriptionTimeline()
             timeline.set_data(upcoming, days=60, currency=cur)
             tll.addWidget(timeline)
+            tll.addLayout(dot_legend([
+                (T.GREEN, "income due"), (T.SERIES[0], "subscription due")]))
+            tll.addWidget(label("Marker size ∝ amount; hover for name & date.",
+                                T.TEXT_DIM, 10))
             self.blay.addWidget(tl_card)
 
         # B1 — renewing soon
@@ -2618,7 +2768,6 @@ class MainWindow(QMainWindow):
         self.topbar.jump.connect(self.goto_month)
         self.topbar.search.connect(self._open_search)
         self.topbar.mode_changed.connect(self.set_mode)
-        self.topbar.edit_changed.connect(self._set_edit_mode)
         rlay.addWidget(self.topbar)
 
         self.stack = QStackedWidget()
@@ -2662,6 +2811,23 @@ class MainWindow(QMainWindow):
         self._load_anchor()
         self.go("overview")
 
+        # restore the last window size/position (if any) so it opens where
+        # you left it rather than always at the default centred size
+        geo = self.dm.settings().get("window_geometry")
+        if geo:
+            from PyQt6.QtCore import QByteArray
+            self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
+
+    def closeEvent(self, e):
+        """Persist window geometry so the next launch reopens in place."""
+        try:
+            self.dm.settings()["window_geometry"] = bytes(
+                self.saveGeometry().toBase64()).decode("ascii")
+            self.dm.save()
+        except Exception:
+            pass
+        super().closeEvent(e)
+
     def _load_user_modules(self):
         """Discover and mount user modules from data/modules/ (errors isolated)."""
         import modules as _mods
@@ -2687,12 +2853,6 @@ class MainWindow(QMainWindow):
         self.settings.set_module_info(self._module_loaded, self._module_errors,
                                       _mods.modules_dir())
 
-    def _set_edit_mode(self, on: bool):
-        """Propagate global edit mode to every ledger card in the app."""
-        for card in (self.overview.income_card, self.overview.expense_card,
-                     self.analytics._inc.card, self.analytics._exp.card):
-            card.set_edit_mode(on)
-
     # -- navigation ------------------------------------------------------- #
     # Which pages show (mode-pill, date-nav)
     _NAV_VIS = {
@@ -2705,8 +2865,6 @@ class MainWindow(QMainWindow):
     }
 
     def go(self, key):
-        self.topbar.reset_edit()          # leave edit mode on page change
-        self._set_edit_mode(False)
         page = self.pages[key]
         if hasattr(page, "set_context"):
             # non-overview pages are month-based; always hand them a month doc
@@ -2891,6 +3049,7 @@ def main():
         return 0
 
     win.show()
+    win.raise_(); win.activateWindow()   # come to the front on launch
     return app.exec()
 
 

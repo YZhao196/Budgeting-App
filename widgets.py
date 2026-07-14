@@ -565,11 +565,9 @@ class TopBar(QWidget):
     jump  = pyqtSignal(int, int)      # (year, month) — from month-picker
     search        = pyqtSignal()      # open global search
     mode_changed  = pyqtSignal(str)   # "month" | "week"
-    edit_changed  = pyqtSignal(bool)  # True = entering edit mode
 
     def __init__(self):
         super().__init__()
-        self._edit_on = False
         self.setFixedHeight(T.HEADER_H)
         self.setStyleSheet(
             f"background:{T.BG_HEADER}; border-bottom:1px solid {T.BORDER_SOFT};")
@@ -585,14 +583,6 @@ class TopBar(QWidget):
         self.nav.today.connect(self.today.emit)
         self.nav.jump.connect(self.jump.emit)
 
-        self.edit_btn = QPushButton("EDIT")
-        self.edit_btn.setCheckable(True)
-        self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ef = QFont(T.FONT_FAMILY); ef.setPixelSize(10); ef.setBold(True)
-        self.edit_btn.setFont(ef)
-        self._style_edit_btn(False)
-        self.edit_btn.clicked.connect(self._toggle_edit)
-
         center = QWidget()
         cl = QHBoxLayout(center); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(12)
         cl.addWidget(self.modebar); cl.addWidget(self.nav)
@@ -607,31 +597,6 @@ class TopBar(QWidget):
         lay.addWidget(center)
         lay.addStretch(1)
         lay.addWidget(self.search_btn)
-        lay.addSpacing(10)
-        lay.addWidget(self.edit_btn)
-
-    def _style_edit_btn(self, on: bool):
-        fg = T.GREEN if on else T.TEXT_MUTED
-        bg = T.GREEN_BG if on else "transparent"
-        bd = T.GREEN_BORDER if on else T.BORDER
-        self.edit_btn.setStyleSheet(
-            f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {bd};"
-            f"border-radius:0px; padding:5px 14px;}}"
-            f"QPushButton:hover{{border-color:{T.GREEN if on else T.TEXT}; color:{T.GREEN if on else T.TEXT};}}")
-
-    def _toggle_edit(self):
-        self._edit_on = not self._edit_on
-        self.edit_btn.setText("DONE" if self._edit_on else "EDIT")
-        self._style_edit_btn(self._edit_on)
-        self.edit_changed.emit(self._edit_on)
-
-    def reset_edit(self):
-        """Return to view mode without emitting (used on page navigation)."""
-        if self._edit_on:
-            self._edit_on = False
-            self.edit_btn.setChecked(False)
-            self.edit_btn.setText("EDIT")
-            self._style_edit_btn(False)
 
     def set_controls_visible(self, mode: bool, nav: bool):
         """Show/hide the Month|Week pill and the date navigation arrow block."""
@@ -1000,7 +965,6 @@ class LedgerCard(QFrame):
         self.today = today
         self.currency = currency
         self.sort_mode = "By Due" if kind != "income" else "Custom"
-        self.edit_mode = False               # view mode by default
         self.week_mode: int | None = None    # legacy; unused under the flat store
         self._editing = None                 # (node_id, field) or None
         self.store = None                    # ItemStore — when set, edits persist there
@@ -1023,6 +987,11 @@ class LedgerCard(QFrame):
         head.setContentsMargins(PAD_L, 0, PAD_R, 0); head.setSpacing(6)
         head.addWidget(label("▲" if income else "▼", tri_col, 10))
         head.addWidget(label("Incoming" if income else "Outgoing", T.TEXT, 14, bold=True))
+        self._overflow = Clickable("⋯", T.TEXT_DIM, 15, hover=T.TEXT)
+        self._overflow.setToolTip("More…")
+        self._overflow.clicked.connect(self._open_overflow)
+        head.addSpacing(4)
+        head.addWidget(self._overflow)
         head.addStretch(1)
         self.total_lbl = label("", tri_col, 14, bold=True,
                                align=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -1194,11 +1163,6 @@ class LedgerCard(QFrame):
         more.setContentsMargins(PAD_L + CHEV_W, 6, 0, 0)
         more.clicked.connect(self._add_top)
         self.list_box.addWidget(more)
-        if self.edit_mode:
-            clr = Clickable("Clear all", T.TEXT_DIM, 11, hover=T.RED)
-            clr.setContentsMargins(PAD_L + CHEV_W, 2, 0, 6)
-            clr.clicked.connect(self._clear_all)
-            self.list_box.addWidget(clr)
         self.list_box.addStretch(1)
 
         if week_filtering:
@@ -1239,11 +1203,16 @@ class LedgerCard(QFrame):
     def _def_of(self, node):
         return node.get("_def_id") or node.get("id")
 
-    def set_edit_mode(self, on: bool):
-        self.edit_mode = on
-        if not on:
-            self._editing = None
-        self.rebuild()
+    def _open_overflow(self):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
+            f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:0px;}}"
+            f"QMenu::item:selected{{background:{T.BG_HOVER};}}")
+        act = menu.addAction("Clear all…")
+        act.triggered.connect(self._clear_all)
+        menu.exec(self._overflow.mapToGlobal(
+            self._overflow.rect().bottomLeft()))
 
     # -- mutations -------------------------------------------------------- #
     def _toggle(self, node):
@@ -1940,6 +1909,7 @@ class SearchDialog(QDialog):
         self.setMinimumWidth(480)
         self._search_fn = search_fn
         self._on_pick = on_pick
+        self._picked = False
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(10)
@@ -1959,6 +1929,9 @@ class SearchDialog(QDialog):
             f"QListWidget::item{{padding:6px 8px;}}"
             f"QListWidget::item:selected{{background:{T.BG_HOVER}; color:{T.TEXT};}}")
         self.results.setMinimumHeight(300)
+        # A single click opens the result (as well as Enter / double-click) —
+        # for a short result list, select-then-open is needless friction.
+        self.results.itemClicked.connect(self._pick)
         self.results.itemActivated.connect(self._pick)
         lay.addWidget(self.results)
         self.box.setFocus()
@@ -1978,6 +1951,9 @@ class SearchDialog(QDialog):
             self._pick(self.results.item(0))
 
     def _pick(self, item):
+        if self._picked:           # guard: click + activate can both fire
+            return
+        self._picked = True
         r = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
         if r and self._on_pick:
@@ -2158,6 +2134,159 @@ class PersonDialog(QDialog):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
+
+
+class AccountDialog(QDialog):
+    """Create / edit a net-worth account: {name, kind, balance}. Same
+    static create()/edit() shape as PersonDialog."""
+    _KINDS = [("Cash", "cash"), ("Savings", "savings"),
+              ("Investment", "investment"), ("Debt / loan", "debt"),
+              ("Credit card", "credit")]
+
+    def __init__(self, parent, currency="$", account=None):
+        super().__init__(parent)
+        self._editing = account is not None
+        self.setWindowTitle("Edit account" if self._editing else "Add account")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumWidth(340)
+        self._result = None
+        a = account or {}
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
+        lay.addWidget(label("Edit account" if self._editing else "Add account",
+                            T.TEXT, 15, bold=True))
+        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
+               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+
+        self.name = QLineEdit(a.get("name", ""))
+        self.name.setPlaceholderText("e.g. ANZ Plus, Shares, Home loan")
+        self.name.setStyleSheet(ist)
+        lay.addWidget(label("Name", T.TEXT_MUTED, 10)); lay.addWidget(self.name)
+
+        self.kind = QComboBox(); self.kind.addItems([k[0] for k in self._KINDS])
+        idx = next((i for i, (_, v) in enumerate(self._KINDS)
+                    if v == a.get("kind", "cash")), 0)
+        self.kind.setCurrentIndex(idx)
+        lay.addWidget(label("Type", T.TEXT_MUTED, 10)); lay.addWidget(self.kind)
+
+        lay.addWidget(label("Balance", T.TEXT_MUTED, 10))
+        self.balance = QDoubleSpinBox(); self.balance.setRange(0, 100_000_000)
+        self.balance.setDecimals(2); self.balance.setPrefix(currency)
+        self.balance.setValue(float(a.get("balance", 0.0)))
+        self.balance.setStyleSheet(ist)
+        lay.addWidget(self.balance)
+        hint = label("Debt and credit accounts count as liabilities — subtracted "
+                     "from net worth. Enter the balance as a positive number.",
+                     T.TEXT_DIM, 10)
+        hint.setWordWrap(True); lay.addWidget(hint)
+
+        arow = QHBoxLayout()
+        cancel = QPushButton("Cancel"); save = QPushButton(
+            "Save changes" if self._editing else "Add account")
+        for b, fg, bg, border in ((cancel, T.TEXT_MUTED, T.BG_INPUT, T.BORDER),
+                                  (save, T.GREEN, T.GREEN_BG, T.GREEN_BORDER)):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
+                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"QPushButton:hover{{border-color:{fg};}}")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        arow.addStretch(1); arow.addWidget(cancel); arow.addWidget(save)
+        lay.addSpacing(4); lay.addLayout(arow)
+        self.name.setFocus()
+
+    def _save(self):
+        nm = self.name.text().strip()
+        if not nm:
+            self.name.setFocus(); return
+        self._result = {"name": nm,
+                        "kind": self._KINDS[self.kind.currentIndex()][1],
+                        "balance": float(self.balance.value())}
+        self.accept()
+
+    @staticmethod
+    def create(parent, currency="$"):
+        dlg = AccountDialog(parent, currency)
+        dlg.move(QCursor.pos())
+        return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
+
+    @staticmethod
+    def edit(parent, account, currency="$"):
+        dlg = AccountDialog(parent, currency, account=account)
+        dlg.move(QCursor.pos())
+        return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
+
+
+class BudgetDialog(QDialog):
+    """Set the monthly ideal (budget) for each expense category. Returns
+    {category_id: ideal} on save."""
+
+    def __init__(self, parent, rows, currency="$"):
+        super().__init__(parent)
+        self.setWindowTitle("Set category budgets")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumWidth(430)
+        self._result = None
+        self._spins = {}                 # category id → spinbox
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(8)
+        lay.addWidget(label("Set category budgets", T.TEXT, 15, bold=True))
+        lay.addWidget(label("The monthly amount each category should stay under. "
+                            "Leave 0 to leave a category unbudgeted.", T.TEXT_MUTED, 11))
+        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
+               f"border:1px solid {T.BORDER_LIGHT}; padding:4px 6px;")
+
+        box = QVBoxLayout(); box.setContentsMargins(0, 0, 0, 0); box.setSpacing(3)
+        inner = QWidget(); inner.setLayout(box)
+        inner.setStyleSheet("background:transparent;")
+        sc = BoundedScroll(); sc.setWidget(inner); sc.setWidgetResizable(True)
+        sc.setFixedHeight(300)
+        sc.setStyleSheet(f"QScrollArea{{background:{T.BG_INPUT};"
+                         f"border:1px solid {T.BORDER_LIGHT};}}")
+        if not rows:
+            box.addWidget(label("No expense categories yet — add expenses on the "
+                                "Overview first.", T.TEXT_DIM, 11))
+        for r in rows:
+            rw = QHBoxLayout(); rw.setContentsMargins(6, 1, 6, 1); rw.setSpacing(8)
+            rw.addWidget(label(r.get("name", ""), T.TEXT, 12)); rw.addStretch(1)
+            if r.get("planned"):
+                rw.addWidget(label(f"planned {money(r['planned'], currency, signed=False)}",
+                                   T.TEXT_DIM, 10))
+            spin = QDoubleSpinBox(); spin.setRange(0, 10_000_000); spin.setDecimals(2)
+            spin.setPrefix(currency); spin.setValue(float(r.get("ideal", 0.0)))
+            spin.setFixedWidth(112); spin.setStyleSheet(ist)
+            self._spins[r["id"]] = spin
+            rw.addWidget(spin)
+            box.addLayout(rw)
+        box.addStretch(1)
+        lay.addWidget(sc)
+
+        arow = QHBoxLayout()
+        cancel = QPushButton("Cancel"); save = QPushButton("Save budgets")
+        for b, fg, bg, border in ((cancel, T.TEXT_MUTED, T.BG_INPUT, T.BORDER),
+                                  (save, T.GREEN, T.GREEN_BG, T.GREEN_BORDER)):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
+                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"QPushButton:hover{{border-color:{fg};}}")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        arow.addStretch(1); arow.addWidget(cancel); arow.addWidget(save)
+        lay.addSpacing(4); lay.addLayout(arow)
+
+    def _save(self):
+        self._result = {cid: float(sp.value()) for cid, sp in self._spins.items()}
+        self.accept()
+
+    @staticmethod
+    def edit(parent, rows, currency="$"):
+        dlg = BudgetDialog(parent, rows, currency)
+        dlg.move(QCursor.pos())
+        return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
 class SharedPlanDialog(QDialog):
