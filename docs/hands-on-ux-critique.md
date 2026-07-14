@@ -44,21 +44,17 @@ list, and thread the item id through `_on_pick`/`MainWindow.go` so the destinati
 scroll-to and flash the row. The fuller filtered-search upgrade is in
 `docs/people-pipeline-and-efficiency.md` §4.
 
-### 3. Every edit or delete of a recurring item forces a scope modal
-**Observed:** Changing one recurring row's amount immediately popped *"'X' repeats. Apply
-this change to: This occurrence / This + future / All occurrences."* Deleting it threw a
-second modal *"Which occurrences do you want to remove? This only / This + future / All
-instances."* For a tool whose daily action is tweaking recurring amounts, a mandatory 3-way
-decision on every single-field edit and every delete is heavy friction.
+### 3. Recurring edit/delete scope modal — KEPT BY DECISION (not changing)
+**Observed:** Changing one recurring row's amount pops *"'X' repeats. Apply this change to:
+This occurrence / This + future / All occurrences."* Deleting it pops *"Which occurrences do
+you want to remove? This only / This + future / All instances."* (`LedgerCard`/`CategoryRow`
+route every recurring field commit and delete through `_ask_edit_scope` /
+`_ask_recurring_scope`.)
 
-**Cause:** `LedgerCard`/`CategoryRow` (`widgets.py`) route every field commit and every
-delete on a recurring item through `_ask_edit_scope` / `_ask_recurring_scope`.
-
-**Fix:** Default to the most common scope (usually "this + future" for an amount change; "all
-instances" for a delete) and apply it silently, surfacing the scope choice only via a small
-"applied to future — change?" affordance or an undo, not a blocking modal every time. Keep
-the explicit 3-way prompt available (e.g. behind a modifier-click or a per-occurrence edit),
-but stop making it the default path.
+**Decision:** Keep the explicit 3-way prompt as-is. It was considered for a silent-default +
+undo treatment to cut friction, but the owner chose to keep the three options on every
+recurring edit/delete — the explicitness is deliberate. No change. (Left here as a documented
+decision so it isn't re-raised later.)
 
 ---
 
@@ -155,8 +151,7 @@ raise/activate the window on startup.
 ## Suggested priority order
 
 1. ~~**#1 red winning-bar**~~ — ✅ done (opt-in bounded overrun; Goals bar now green).
-2. **#3 recurring-edit scope-modal friction** — biggest day-to-day annoyance; the next fix
-   worth doing, but it changes default behaviour so it's a design call worth confirming first.
+2. ~~**#3 recurring scope modal**~~ — decided to keep the 3 options; no change.
 3. **#5 all-red budget chart** + **#7 accounts UI / masked key** — make the core budgeting
    and net-worth loops usable without editing JSON.
 4. **#4 EDIT button**, **#6 legends**, **#8 collapsed goal charts**, **#2 search polish**,
