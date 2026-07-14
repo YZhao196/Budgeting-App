@@ -2176,9 +2176,12 @@ class SharedPlanDialog(QDialog):
     # Google-style escape hatch: "Repeat every [N] [unit]"
     _CUSTOM_LABEL = "Custom…"
 
-    def __init__(self, parent, currency="$", existing=None):
+    def __init__(self, parent, currency="$", existing=None, store=None):
         super().__init__(parent)
         self._editing = existing is not None
+        self._store = store
+        self._currency = currency
+        self._mem_rows = []          # [{name, cb, spin, row}] — one per person
         self.setWindowTitle("Edit subscription" if self._editing else "Add subscription")
         self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
         self.setMinimumWidth(400)
@@ -2287,12 +2290,29 @@ class SharedPlanDialog(QDialog):
         self._srow_host = QWidget(); self._srow_host.setLayout(srow)
         lay.addWidget(self._srow_host)
 
-        self._mem_lbl = label("Members (one per line)", T.TEXT_MUTED, 10)
+        self._mem_lbl = label("Members — tick who's on this plan", T.TEXT_MUTED, 10)
         lay.addWidget(self._mem_lbl)
-        self.members = QPlainTextEdit(); self.members.setStyleSheet(self._ist())
-        self.members.setFixedHeight(90)
-        self.members.textChanged.connect(self._sync)   # keep split hint's count live
-        lay.addWidget(self.members)
+        # Checkbox list of people (replaces the old free-text "one per line").
+        self._mem_box = QVBoxLayout()
+        self._mem_box.setContentsMargins(0, 0, 0, 0); self._mem_box.setSpacing(2)
+        mem_inner = QWidget(); mem_inner.setLayout(self._mem_box)
+        mem_inner.setStyleSheet("background:transparent;")
+        self._mem_scroll = BoundedScroll(); self._mem_scroll.setWidget(mem_inner)
+        self._mem_scroll.setWidgetResizable(True)
+        self._mem_scroll.setFixedHeight(112)
+        self._mem_scroll.setStyleSheet(
+            f"QScrollArea{{background:{T.BG_INPUT}; border:1px solid {T.BORDER_LIGHT};}}")
+        lay.addWidget(self._mem_scroll)
+        self._empty_mem_lbl = label(
+            "No people yet — add someone with “+ New person”.", T.TEXT_DIM, 10)
+        self._empty_mem_lbl.setWordWrap(True)
+        lay.addWidget(self._empty_mem_lbl)
+        self._new_person_btn = Clickable("+ New person", T.ACCENT, 11,
+                                         hover=T.GREEN_BRIGHT)
+        self._new_person_btn.clicked.connect(self._add_new_person)
+        lay.addWidget(self._new_person_btn)
+        for _p in (self._store.people() if self._store else []):
+            self._add_member_row(_p.get("name", ""))
         self.hint = label("", T.TEXT_DIM, 10); self.hint.setWordWrap(True)
         lay.addWidget(self.hint)
 
@@ -2319,6 +2339,44 @@ class SharedPlanDialog(QDialog):
             f"border-radius:0px; padding:6px 14px;}}"
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
+
+    # -- member checkbox list -------------------------------------------- #
+    def _add_member_row(self, name, checked=False, share=0.0):
+        """One tickable person row: [✓ name] … [share spinbox (custom only)]."""
+        rw = QWidget(); h = QHBoxLayout(rw)
+        h.setContentsMargins(6, 1, 6, 1); h.setSpacing(8)
+        cb = QCheckBox(name); cb.setChecked(checked)
+        cb.setCursor(Qt.CursorShape.PointingHandCursor)
+        cb.setStyleSheet(f"color:{T.TEXT};")
+        cb.toggled.connect(self._sync)
+        spin = QDoubleSpinBox(); spin.setRange(0, 1_000_000); spin.setDecimals(2)
+        spin.setPrefix(self._currency); spin.setValue(float(share))
+        spin.setFixedWidth(104); spin.setStyleSheet(self._ist())
+        spin.valueChanged.connect(self._sync)
+        h.addWidget(cb); h.addStretch(1); h.addWidget(spin)
+        self._mem_box.addWidget(rw)
+        row = {"name": name, "cb": cb, "spin": spin, "row": rw}
+        self._mem_rows.append(row)
+        return row
+
+    def _add_new_person(self):
+        res = PersonDialog.create(self)
+        if not res:
+            return
+        nm = res["name"]
+        if self._store:
+            self._store.add_person(nm, email=res.get("email", ""),
+                                   phone=res.get("phone", ""), note=res.get("note", ""))
+        existing = next((r for r in self._mem_rows
+                         if r["name"].lower() == nm.lower()), None)
+        if existing:
+            existing["cb"].setChecked(True)
+        else:
+            self._add_member_row(nm, checked=True)
+        self._sync()
+
+    def _checked_members(self):
+        return [r for r in self._mem_rows if r["cb"].isChecked()]
 
     def _kind(self):
         return ["solo", "split", "income"][self.kind.currentIndex()]
@@ -2377,28 +2435,30 @@ class SharedPlanDialog(QDialog):
                 _freq_summary(every, unit, anchor=anchor)
                 + f" · starts {anchor.strftime('%d %b %Y')}")
         solo = self._kind() == "solo"
-        for w in (self._srow_host, self._mem_lbl, self.members):
+        for w in (self._srow_host, self._mem_lbl, self._mem_scroll,
+                  self._new_person_btn):
             w.setVisible(not solo)
+        self._empty_mem_lbl.setVisible(not solo and not self._mem_rows)
         if solo:
             self.hint.setText("A subscription only you pay.")
             return
-        self.owner.setVisible(self._kind() == "split" and not self._is_custom())
-        if self._is_custom():
-            self.hint.setText("Custom: “Name = amount” per line, e.g.  Sam = 9.00")
+        custom = self._is_custom()
+        self.owner.setVisible(self._kind() == "split" and not custom)
+        for r in self._mem_rows:                 # per-person share only for custom
+            r["spin"].setVisible(custom)
+        n = len(self._checked_members())
+        if custom:
+            self.hint.setText("Custom: tick each member and set their exact share.")
         elif self._kind() == "split":
-            n = len([ln for ln in self.members.toPlainText().splitlines()
-                     if ln.strip()])
             if self.owner.isChecked():
                 ways = f"{n + 1} ways (members + you)" if n else "members + you"
-                self.hint.setText(
-                    f"Even: one name per line. Cost splits {ways} — "
-                    f"you pay one share as well.")
+                self.hint.setText(f"Even: cost splits {ways} — you pay one share too.")
             else:
-                self.hint.setText(
-                    "Even: one name per line. Members cover the whole cost "
-                    "between them — they reimburse you in full.")
+                self.hint.setText("Even: members cover the whole cost between them — "
+                                  "they reimburse you in full.")
         else:
-            self.hint.setText("Even: one name per line; amount divided equally.")
+            self.hint.setText("Even: the amount is divided equally between the "
+                              "ticked members.")
 
     def _recurrence(self):
         if self._on_days():
@@ -2448,13 +2508,14 @@ class SharedPlanDialog(QDialog):
         custom = shared.get("split") == "custom"
         self.split.setCurrentIndex(1 if custom else 0)
         self.owner.setChecked(bool(shared.get("owner_pays")))
-        lines = []
         for m in shared.get("members", []):
-            if custom:
-                lines.append(f"{m.get('name', '')} = {float(m.get('share', 0.0)):g}")
-            else:
-                lines.append(m.get("name", ""))
-        self.members.setPlainText("\n".join(lines))
+            nm = m.get("name", "")
+            r = next((r for r in self._mem_rows
+                      if r["name"].lower() == nm.lower()), None)
+            if r is None:                        # a member not in the registry
+                r = self._add_member_row(nm)     # → still show it, ticked
+            r["cb"].setChecked(True)
+            r["spin"].setValue(float(m.get("share", 0.0)))
 
     def _invalid(self, w, msg):
         """Focus the offending field and explain what's missing."""
@@ -2479,20 +2540,15 @@ class SharedPlanDialog(QDialog):
             self.accept(); return
         custom = self._is_custom()
         members = []
-        for line in self.members.toPlainText().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if custom and "=" in line:
-                nm, sh = line.split("=", 1)
-                ev = calc_eval(sh.strip())            # arithmetic allowed, e.g. 27/3
-                members.append({"name": nm.strip(),
-                                "share": float(ev) if ev is not None else 0.0})
-            else:
-                members.append({"name": line.split("=")[0].strip()})
+        for r in self._checked_members():
+            m = {"name": r["name"]}
+            if custom:
+                m["share"] = float(r["spin"].value())
+            members.append(m)
         if not members:
-            self._invalid(self.members,
-                          "Add at least one member (one name per line)."); return
+            self._invalid(self._mem_scroll,
+                          "Tick at least one member (or add one with "
+                          "“+ New person”)."); return
         self._result = {
             "name": name, "amount": float(self.amount.value()),
             "type": "expense" if kind == "split" else "income",
@@ -2507,16 +2563,16 @@ class SharedPlanDialog(QDialog):
         self.accept()
 
     @staticmethod
-    def create(parent, currency="$"):
-        dlg = SharedPlanDialog(parent, currency)
+    def create(parent, currency="$", store=None):
+        dlg = SharedPlanDialog(parent, currency, store=store)
         dlg.move(QCursor.pos())
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
 
     @staticmethod
-    def edit(parent, defn, currency="$"):
-        dlg = SharedPlanDialog(parent, currency, existing=defn)
+    def edit(parent, defn, currency="$", store=None):
+        dlg = SharedPlanDialog(parent, currency, existing=defn, store=store)
         dlg.move(QCursor.pos())
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
@@ -2553,17 +2609,12 @@ def retain_size(widget):
 
 
 class SummaryCard(QFrame):
-    """The Overview page's P&L slab. Stays at its full natural height
-    whenever the window has room for it (the common case — "solid", never
-    resizes just because content toggles). Only once the window shrinks
-    close to the app's enforced minimum height does it need to get shorter;
-    rather than scrolling internally (which turned out to render unreliably
-    off-screen/headless, and isn't a great look for a dashboard slab
-    anyway), it sheds its least-essential sections outright, in order:
-    the weekly P&L breakdown first, then target/savings — both of which
-    are duplicated or derivable elsewhere in the app (budget-vs-actual
-    card, Analytics). The tabs, hero P&L value and incoming/outgoing boxes
-    are never hidden."""
+    """The Overview page's P&L slab. A solid, fixed-height block that always
+    shows all of its content — tabs, hero P&L, incoming/outgoing boxes,
+    target/savings, and the weekly P&L breakdown. It never hides or collapses
+    any section when the window shrinks: the right column it lives in is
+    inside a scroll area (see OverviewPage), so a too-short window scrolls
+    rather than dropping information."""
 
     def __init__(self, manager, doc, year, month, today):
         super().__init__()
@@ -2658,57 +2709,14 @@ class SummaryCard(QFrame):
         root.addWidget(self._weekly_section)
 
         self.refresh()
-        # Lock to the full/ideal height by default — a solid block that
-        # never resizes just because content toggles (deficit banner,
-        # vs-avg comparison, bills strip, tab switches all reserve their
-        # space via retain_size above). set_target_height() below can later
-        # shrink it *only* when the window is genuinely too short for
-        # everything to fit, by collapsing the two sections above rather
-        # than resizing/scrolling — plain show()/hide(), so it renders as
-        # reliably as every other card in the app.
-        self.setFixedHeight(self.natural_height())
-
-    def natural_height(self) -> int:
-        """The slab's full/ideal height (both collapsible sections shown)
-        at its *current* embedded width. Measured live, not cached from
-        construction time, since the card isn't at its real column width
-        until it's actually parented."""
-        was_t = self._targets_section.isVisible()
-        was_w = self._weekly_section.isVisible()
-        self._targets_section.setVisible(True)
-        self._weekly_section.setVisible(True)
-        h = self.sizeHint().height()
-        self._targets_section.setVisible(was_t)
-        self._weekly_section.setVisible(was_w)
-        return h
-
-    def set_target_height(self, available: int):
-        """Adaptively resize toward the available vertical space: stays at
-        the full natural height whenever there's room (the common case —
-        unchanged, still "solid"). Only when the window is too short for
-        the whole right column to fit does it collapse sections, in order
-        (weekly breakdown, then target/savings), rather than the right
-        column overflowing the page — the tabs, hero value and
-        incoming/outgoing boxes are always shown."""
-        available = int(available)
-        full = self.natural_height()
-        if available >= full:
-            self._weekly_section.setVisible(True)
-            self._targets_section.setVisible(True)
-            self.setFixedHeight(full)
-            return
-        self._weekly_section.setVisible(False)
-        self._targets_section.setVisible(True)   # measure this checkpoint
-                                                  # deterministically, not
-                                                  # contaminated by whatever
-                                                  # state a previous resize
-                                                  # left it in
-        without_weekly = self.sizeHint().height()
-        if available >= without_weekly:
-            self.setFixedHeight(without_weekly)
-            return
-        self._targets_section.setVisible(False)
-        self.setFixedHeight(self.sizeHint().height())
+        # No fixed height and no collapsing: the card always sizes to its own
+        # content. It stays "solid" against ephemeral toggles (deficit banner,
+        # vs-avg comparison, bills strip) because those reserve their space via
+        # retain_size above, so those never change its height. Real content
+        # differences (e.g. a 4- vs 5-week month's breakdown) are allowed to
+        # size it honestly, and the enclosing scroll area (see OverviewPage)
+        # handles a window too short to show it all — by scrolling, never by
+        # hiding a section.
 
     def set_context(self, doc, year, month):
         self.doc, self.year, self.month = doc, year, month

@@ -101,7 +101,7 @@ class OverviewPage(QWidget):
         for c in (self.income_card, self.expense_card):
             c.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
-        right = QWidget(); right.setFixedWidth(356)
+        right = QWidget()
         right.setStyleSheet("background:transparent;")
         rlay = QVBoxLayout(right); rlay.setContentsMargins(0, 0, 0, 0)
         rlay.setSpacing(T.GAP)
@@ -116,14 +116,21 @@ class OverviewPage(QWidget):
         retain_size(self.budget_card)   # hiding it (no budget data) mustn't
                                         # shove chart/predicted below it
         rlay.addWidget(self.summary)
-        rlay.addWidget(self.chart, 1)
+        rlay.addWidget(self.chart, 1)   # grows to fill a tall window; the
+                                        # scroll below handles a short one
         rlay.addWidget(self.predicted)
         rlay.addWidget(self.budget_card)
         self._refresh_budget_mini()
 
+        # Right column lives in a scroll area so a too-short window scrolls
+        # instead of any card being clipped or any section hidden. When the
+        # window is tall, the chart's stretch factor fills the extra space.
+        right_scroll = scrollable(right)
+        right_scroll.setFixedWidth(356)
+
         main_row.addWidget(self.income_card, 1, Qt.AlignmentFlag.AlignTop)
         main_row.addWidget(self.expense_card, 1, Qt.AlignmentFlag.AlignTop)
-        main_row.addWidget(right)
+        main_row.addWidget(right_scroll)
 
         self.goals_bar = GoalsBar(manager)
         self.goals_bar.refresh(doc.get("currency", "$"))
@@ -154,22 +161,10 @@ class OverviewPage(QWidget):
         self.income_card.set_list_height(h)
         self.expense_card.set_list_height(h)
 
-    def _equalize_right(self):
-        """Explicitly size every card in the right column for the window's
-        actual height — mirroring _equalize_lists()'s approach for the
-        ledger cards. The chart keeps its stretch factor and absorbs
-        whatever's left after the slab claims its own height — only the
-        chart's own hard minimum (196) is reserved for it here; at
-        normal/large window sizes this is a no-op and the slab stays at
-        its full natural height, unchanged."""
-        goals_h = self.goals_bar.height() + T.GAP
-        avail = self.height() - 34 - goals_h    # page margins + goals bar
-        other_hard_floor = self.chart.minimumHeight() + 2 * T.GAP
-        self.summary.set_target_height(avail - other_hard_floor)
-
     def _equalize_all(self):
+        # The right column self-manages via its scroll area now; only the
+        # left ledger lists need explicit per-resize sizing.
         self._equalize_lists()
-        self._equalize_right()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -2371,7 +2366,7 @@ class SubscriptionsPage(QWidget):
             self.on_change()
 
     def _add_subscription(self):
-        res = SharedPlanDialog.create(self, self.currency)
+        res = SharedPlanDialog.create(self, self.currency, store=self.dm)
         if not res:
             return
         start = res.get("start") or f"{self.year:04d}-{self.month:02d}-01"
@@ -2384,7 +2379,7 @@ class SubscriptionsPage(QWidget):
         self.on_change()
 
     def _edit_subscription(self, defn):
-        res = SharedPlanDialog.edit(self, defn, self.currency)
+        res = SharedPlanDialog.edit(self, defn, self.currency, store=self.dm)
         if not res:
             return
         if res.get("solo"):
