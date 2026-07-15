@@ -18,7 +18,7 @@ from datetime import date
 from PyQt6.QtCore import Qt, QDate, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
+    QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDoubleSpinBox,
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
     QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout,
     QWidget,
@@ -34,7 +34,8 @@ from widgets import (
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
     ProgressBar, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
-    SubscriptionTimeline, SummaryCard, TopBar, TrackerItemDialog, WhoOwesBar, clear_layout,
+    SubscriptionTimeline, SummaryCard, TopBar, TrackerItemDialog, TransactionReviewDialog,
+    WhoOwesBar, clear_layout,
     flash_widget, hsep, label, money, repeat_label, retain_size, tag_chip,
 )
 
@@ -693,9 +694,15 @@ class _AnalyticsOverview(QWidget):
                                     T.TEXT_DIM, 11))
                 row.addWidget(label(f"actual {money(r['actual'], cur, signed=False)}",
                                     T.TEXT, 11, bold=True))
-                row.addWidget(label(
-                    f"{money(abs(diff), cur, signed=False)} {'under' if diff >= 0 else 'over'}",
-                    T.GREEN if diff >= 0 else T.RED, 11))
+                if r["planned"] == 0 and r["actual"] > 0:
+                    # Nothing was ever planned for this category — "over
+                    # budget" would be a false signal (there's no budget to
+                    # be over), not a real reconciliation result.
+                    row.addWidget(label("not budgeted", T.TEXT_DIM, 11))
+                else:
+                    row.addWidget(label(
+                        f"{money(abs(diff), cur, signed=False)} {'under' if diff >= 0 else 'over'}",
+                        T.GREEN if diff >= 0 else T.RED, 11))
                 self.rec_box.addLayout(row)
 
         # month comparison table
@@ -1362,9 +1369,11 @@ class SettingsPage(QWidget):
         irow.addWidget(self.acct)
         imp = _button("Import CSV / OFX…", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         imp.clicked.connect(self._import_bank)
+        rev = _button("Review transactions…", T.TEXT_MUTED, T.BG_INPUT, T.BORDER)
+        rev.clicked.connect(self._review_transactions)
         clr = _button("Clear imported", T.TEXT_MUTED, T.BG_INPUT, T.BORDER)
         clr.clicked.connect(self._clear_imported)
-        irow.addWidget(imp); irow.addWidget(clr); irow.addStretch(1)
+        irow.addWidget(imp); irow.addWidget(rev); irow.addWidget(clr); irow.addStretch(1)
         ilay.addLayout(irow)
         self.import_status = label("", T.TEXT_MUTED, 11)
         ilay.addWidget(self.import_status)
@@ -1400,7 +1409,17 @@ class SettingsPage(QWidget):
         rly.addLayout(self.rules_box)
         rrow = QHBoxLayout(); rrow.setSpacing(8)
         self.rule_match = QLineEdit(); self.rule_match.setPlaceholderText("contains… (e.g. woolworths)")
-        self.rule_cat = QLineEdit(); self.rule_cat.setPlaceholderText("category (e.g. Groceries)")
+        self.rule_cat = QLineEdit()
+        self.rule_cat.setPlaceholderText("category — pick an existing expense to reconcile against it")
+        # Autocomplete against real expense-definition names: a rule whose
+        # category doesn't match one exactly can never show a non-zero
+        # "planned" figure in Plan vs actual (it'll always read as
+        # "not budgeted" rather than reconciling against anything) — nudge
+        # the user toward names that actually exist, without forcing it.
+        completer = QCompleter(self.dm.expense_names(), self.rule_cat)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.rule_cat.setCompleter(completer)
+        self._rule_cat_completer = completer
         _ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
                 f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
         self.rule_match.setStyleSheet(_ist); self.rule_cat.setStyleSheet(_ist)
@@ -1669,16 +1688,25 @@ class SettingsPage(QWidget):
         self.dm.remove_account(a["id"])
         self._refresh_accounts(); self.on_change()
 
+    # A sizeable uncategorised share is a real state worth flagging in colour
+    # (per PRODUCT.md's "functional colour only" principle) — it directly
+    # undermines how much the budget-vs-actual/plan-vs-actual reconciliation
+    # can be trusted, the same way an overdue bill or a budget overrun would
+    # be flagged, not left the same neutral grey regardless of severity.
+    _UNCATEGORISED_WARN_RATIO = 0.3
+
     def _refresh_import_status(self):
-        # neutral colour — clears any leftover red/amber from a previous import
-        self.import_status.setStyleSheet(f"color:{T.TEXT_MUTED}; background:transparent;")
         n = len(self.dm.transactions()) if hasattr(self.dm, "transactions") else 0
         if n:
             uncat = sum(1 for t in self.dm.transactions() if not t.get("category"))
+            ratio = uncat / n
+            color = T.AMBER if ratio >= self._UNCATEGORISED_WARN_RATIO else T.TEXT_MUTED
+            self.import_status.setStyleSheet(f"color:{color}; background:transparent;")
             self.import_status.setText(
                 f"{n} transaction{'s' if n != 1 else ''} imported"
                 + (f"  ·  {uncat} uncategorised" if uncat else "  ·  all categorised"))
         else:
+            self.import_status.setStyleSheet(f"color:{T.TEXT_MUTED}; background:transparent;")
             self.import_status.setText("No transactions imported yet.")
 
     def _import_bank(self):
@@ -1705,6 +1733,21 @@ class SettingsPage(QWidget):
             f"{res['skipped']} duplicate(s) skipped.")
         self.on_change()                               # refresh Budget etc.
 
+    def _review_transactions(self):
+        txns = self.dm.transactions()
+        if not txns:
+            self.import_status.setStyleSheet(f"color:{T.AMBER}; background:transparent;")
+            self.import_status.setText("No transactions imported yet.")
+            return
+        result = TransactionReviewDialog.review(
+            self, txns, self.dm.expense_names(), self._cur())
+        if result is None:
+            return
+        for tid, category in result.items():
+            self.dm.set_transaction_category(tid, category or None)
+        self._refresh_import_status()
+        self.on_change()                               # refresh Budget etc.
+
     def _clear_imported(self):
         from PyQt6.QtWidgets import QMessageBox
         if not (hasattr(self.dm, "transactions") and self.dm.transactions()):
@@ -1720,6 +1763,8 @@ class SettingsPage(QWidget):
 
     # -- categorisation rules --------------------------------------------- #
     def _refresh_rules(self):
+        from PyQt6.QtCore import QStringListModel
+        self._rule_cat_completer.setModel(QStringListModel(self.dm.expense_names()))
         clear_layout(self.rules_box)
         rules = self.dm.rules() if hasattr(self.dm, "rules") else []
         if not rules:
@@ -2287,7 +2332,13 @@ class SubscriptionsPage(QWidget):
     def _forgotten_section(self, cur):
         detected = [d for d in B.detect_subscriptions(self.dm.transactions())
                     if d["direction"] == "outgoing"]
+        # Exclude anything already accounted for — a subscription/shared plan
+        # *or* a plain tracked expense (e.g. Rent). "Forgotten" should mean
+        # "nothing in the plan explains this," not just "not flagged as a
+        # subscription" — a recurring bank pattern for an expense the plan
+        # already fully models isn't forgotten.
         tracked = [d.get("name", "").lower() for d in self.dm.all_subscriptions()]
+        tracked += [n.lower() for n in self.dm.expense_names()]
         forgotten = [d for d in detected if not any(
             d["merchant"].lower() in t or t in d["merchant"].lower()
             for t in tracked if t)]

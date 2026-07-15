@@ -16,11 +16,11 @@ from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QRectF, QSize, Qt,
 from PyQt6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QIcon,
                          QLinearGradient, QPainter, QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (
-    QApplication, QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QDialog,
-    QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
-    QWidgetAction,
+    QApplication, QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QCompleter,
+    QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout,
+    QWidget, QWidgetAction,
 )
 
 import backend as B
@@ -2518,6 +2518,108 @@ class BudgetDialog(QDialog):
         return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
+class TransactionReviewDialog(QDialog):
+    """Review imported bank transactions and assign/correct a category per
+    row. Previously the only UI, none — ItemStore.set_transaction_category
+    had no consumer at all, so a transaction that didn't happen to match a
+    rule or an exact expense name had no way to ever be categorised, and
+    there was no way to see which raw descriptions were uncategorised in
+    the first place. Sorted uncategorised-first so the highest-value rows
+    are the first ones seen. Returns {txn_id: new_category} on save."""
+
+    def __init__(self, parent, transactions, expense_names, currency="$"):
+        super().__init__(parent)
+        self.setWindowTitle("Review transactions")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumSize(620, 480)
+        self._currency = currency
+        self._expense_names = expense_names
+        self._edits = {}          # txn id -> QLineEdit
+        self._result = None
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
+        lay.addWidget(label("Review transactions", T.TEXT, 15, bold=True))
+        lay.addWidget(label(
+            "Uncategorised transactions first. Type a category for each — an "
+            "existing expense name (autocompleted) reconciles against the "
+            "plan; anything else still tracks the spend, just without a "
+            "budget comparison.", T.TEXT_DIM, 10))
+
+        hdr = QHBoxLayout(); hdr.setContentsMargins(4, 0, 4, 0); hdr.setSpacing(8)
+        for cap, w in (("Date", 80), ("Description", 220), ("Amount", 70)):
+            l = label(cap, T.TEXT_DIM, 10, bold=True); l.setFixedWidth(w)
+            hdr.addWidget(l)
+        hdr.addWidget(label("Category", T.TEXT_DIM, 10, bold=True))
+        lay.addLayout(hdr)
+
+        box = QVBoxLayout(); box.setContentsMargins(0, 0, 0, 0); box.setSpacing(3)
+        inner = QWidget(); inner.setLayout(box)
+        inner.setStyleSheet("background:transparent;")
+        sc = BoundedScroll(); sc.setWidget(inner); sc.setWidgetResizable(True)
+        sc.setStyleSheet(f"QScrollArea{{background:{T.BG_INPUT};"
+                         f"border:1px solid {T.BORDER_LIGHT};}}")
+        lay.addWidget(sc, 1)
+
+        txns = sorted(transactions,
+                      key=lambda t: (bool(t.get("category")), t.get("date", "")),
+                      reverse=False)
+        if not txns:
+            box.addWidget(label("No transactions imported yet.", T.TEXT_DIM, 11))
+        for t in txns:
+            box.addWidget(self._txn_row(t))
+        box.addStretch(1)
+
+        arow = QHBoxLayout()
+        close = QPushButton("Close"); save = QPushButton("Save changes")
+        for b, fg, bg, border in ((close, T.TEXT_MUTED, T.BG_INPUT, T.BORDER),
+                                  (save, T.GREEN, T.GREEN_BG, T.GREEN_BORDER)):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
+                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"QPushButton:hover{{border-color:{fg};}}")
+        close.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        arow.addStretch(1); arow.addWidget(close); arow.addWidget(save)
+        lay.addSpacing(4); lay.addLayout(arow)
+
+    def _txn_row(self, t):
+        row = QWidget()
+        h = QHBoxLayout(row); h.setContentsMargins(4, 2, 4, 2); h.setSpacing(8)
+        d = label(t.get("date", ""), T.TEXT_DIM, 10); d.setFixedWidth(80)
+        h.addWidget(d)
+        desc = label(t.get("description", ""), T.TEXT, 11); desc.setFixedWidth(220)
+        h.addWidget(desc)
+        amt_val = float(t.get("amount", 0))
+        amt = label(money(amt_val, self._currency), T.GREEN if amt_val >= 0 else T.RED, 11)
+        amt.setFixedWidth(70)
+        h.addWidget(amt)
+        edit = QLineEdit(t.get("category", ""))
+        edit.setPlaceholderText("category…")
+        edit.setStyleSheet(
+            f"background:{T.BG_APP}; color:{T.TEXT}; border:1px solid {T.BORDER};"
+            f"padding:3px 6px;")
+        completer = QCompleter(self._expense_names, edit)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        edit.setCompleter(completer)
+        h.addWidget(edit, 1)
+        self._edits[t["id"]] = edit
+        return row
+
+    def _save(self):
+        self._result = {tid: edit.text().strip() for tid, edit in self._edits.items()}
+        self.accept()
+
+    @staticmethod
+    def review(parent, transactions, expense_names, currency="$"):
+        dlg = TransactionReviewDialog(parent, transactions, expense_names, currency)
+        place_near_cursor(dlg)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg._result
+
+
 class SharedPlanDialog(QDialog):
     """Add a subscription: solo (just me), a cost split with others, or income
     others pay me — with a billing cycle and a member list."""
@@ -3050,6 +3152,25 @@ class SummaryCard(QFrame):
         retain_size(self._deficit_w)
         root.addWidget(self._deficit_w)
 
+        # Reality check: bank-confirmed spend vs. the plan, right on the
+        # "single glance" card — a plan/reality gap previously only showed
+        # up in one small Analytics card, not here where PRODUCT.md says the
+        # answer to "am I on track" should be visible without digging.
+        root.addSpacing(6)
+        self._reality_w = QFrame()
+        self._reality_w.setObjectName("RealityBanner")
+        self._reality_w.setStyleSheet(
+            f"#RealityBanner{{background:{T.BG_CARD_SOFT};"
+            f"border:1px solid {T.BORDER_LIGHT};border-radius:4px;}}")
+        _rl = QHBoxLayout(self._reality_w)
+        _rl.setContentsMargins(9, 6, 9, 6); _rl.setSpacing(6)
+        _rl.addWidget(label("Bank says", T.TEXT_MUTED, 11))
+        self._reality_lbl = label("", T.AMBER, 11, bold=True)
+        _rl.addWidget(self._reality_lbl); _rl.addStretch(1)
+        self._reality_w.setVisible(False)
+        retain_size(self._reality_w)
+        root.addWidget(self._reality_w)
+
         # --- collapsible section: weekly P&L breakdown --------------------
         self._weekly_section = QWidget()
         wsec = QVBoxLayout(self._weekly_section)
@@ -3229,6 +3350,26 @@ class SummaryCard(QFrame):
                                f"  ({money(weekly, cur)}/wk)")
         self._deficit_rate.setText(deficit_str)
         self._deficit_w.setVisible(bool(deficit_str))
+        # ─────────────────────────────────────────────────────────────── #
+
+        # ── reality check: bank-confirmed spend vs. the plan ────────────── #
+        reality_str, reality_col = "", T.TEXT_DIM
+        if not range_mode and self.period == "Monthly":
+            prefix = f"{self.year:04d}-{self.month:02d}"
+            month_txns = [t for t in self.dm.transactions()
+                         if t.get("date", "").startswith(prefix)]
+            if month_txns:
+                bank_expense = sum(-t["amount"] for t in month_txns if t["amount"] < 0)
+                gap = bank_expense - s["expenses"]      # +ve = spent more than planned
+                if abs(gap) > 0.005:
+                    more_less = "more" if gap > 0 else "less"
+                    reality_col = T.RED if gap > 0 else T.GREEN
+                    reality_str = (f"{money(bank_expense, cur, signed=False)} spent "
+                                   f"({money(abs(gap), cur, signed=False)} {more_less} "
+                                   f"than planned)")
+        self._reality_lbl.setText(reality_str)
+        self._reality_lbl.setStyleSheet(f"color:{reality_col}; background:transparent;")
+        self._reality_w.setVisible(bool(reality_str))
         # ─────────────────────────────────────────────────────────────── #
 
         clear_layout(self.budget_box)

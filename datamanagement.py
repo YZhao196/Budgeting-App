@@ -912,6 +912,13 @@ class ItemStore:
         scan([n for n in self.items() if n.get("type") == "expense"])
         return [s for s in names if s]
 
+    def expense_names(self) -> list:
+        """Public accessor: every tracked expense definition's name (flat,
+        including nested children) — used e.g. to tell 'might've forgotten'
+        recurring-bank-pattern detection apart from things already planned
+        for, not just things flagged as a subscription."""
+        return self._expense_names()
+
     def categorise(self, description: str) -> tuple[str | None, list]:
         """(category, tags) for a transaction description: user rules first, then
         a fall-back substring match against existing expense category names."""
