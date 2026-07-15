@@ -222,15 +222,61 @@ selected → typing `"450"` replaces it cleanly — the full flow works with no 
 
 ---
 
-## 6. Search doesn't highlight or scroll to the item it navigated to — LOW (known)
+## 6. Search doesn't highlight or scroll to the item it navigated to — ✅ FIXED
 
 **Observed:** Single-click on a result (the round-1 fix) correctly jumped to Overview for
 "Rent", but nothing on the destination page calls out the row — on a busy ledger you still
 hunt by eye.
 
-Already documented and deliberately deferred: `docs/hands-on-ux-critique.md` #2 and
-`docs/people-pipeline-and-efficiency.md` §4 (needs a focus-id threaded through
-`_on_pick`/`MainWindow.go` plus per-page scroll-to support). No new action.
+Previously documented as deliberately deferred (`docs/hands-on-ux-critique.md` #2,
+`docs/people-pipeline-and-efficiency.md` §4) as needing a focus-id threaded through
+`_on_pick`/`MainWindow.go` plus per-page scroll-to support — implemented that for the two
+result kinds that map onto a concrete row (Income/Expense ledger items, Accounts).
+
+**Bonus find while implementing this:** `backend.search()` tagged every Account result with
+`target="networth"` — a page key that has never existed in `MainWindow.pages` (the real page is
+`"settings"`). `_search_pick` silently no-ops when `target not in self.pages`, so **clicking any
+Account search result did nothing at all**, with no error. Fixed alongside #6 since threading an
+`id` through the same result dicts touched this exact code path.
+
+**Status:**
+- `backend.search()` (`backend.py:747, 761`) now includes `"id"` on Income/Expense/Subscription
+  and Account results, and Account's `target` is corrected to `"settings"`.
+- `widgets.py`: added `flash_widget(widget, revert_style, duration_ms)` — a shared helper that
+  tints a widget amber (`T.AMBER` at low alpha) then reverts after ~1.5s. Added
+  `LedgerCard.flash_row(node_id)` (`widgets.py:1233`): finds the row by id, auto-expanding a
+  collapsed parent first if the target is a hidden child, scrolls it into view via the card's
+  own `BoundedScroll`, and flashes it.
+- `main.py`: `SettingsPage._account_row` now builds a `QWidget` (was a bare `QHBoxLayout`) so
+  individual account rows are addressable; `_refresh_accounts` keeps an id→widget map;
+  `flash_account(acct_id)` scrolls/flashes the matching row (the scroll area reference — never
+  stored before — is now kept as `self._scroll`). `MainWindow._search_pick` now calls
+  `card.flash_row(rid)` for Income/Expense results and `self.settings.flash_account(rid)` for
+  Account results.
+- Person and Transaction results still don't get a flash (People/Settings don't render either
+  as an addressable per-row widget the same way) — left as further-out scope, same reasoning as
+  the original deferral, just narrower now.
+
+**Verify:** Search "rent" → single-click → Overview scrolls to and flashes Rent's row amber for
+~1.5s. Search "anz" → single-click → **now actually navigates** (previously did nothing) →
+Settings scrolls to and flashes the ANZ Plus account row.
+
+**Aside — a real data mishap surfaced while verifying this fix:** running verification scripts
+against the live `data/items.json` (rather than an isolated fixture) had, over the course of
+this session's testing, reduced it to a handful of leftover test items — the original demo
+dataset (Rent, accounts, people, settings) was gone. `data/goals.json` is a separate file and
+was untouched. Per the user's direction, the demo dataset was rebuilt via the real `ItemStore`
+API (`create_subscription`/`create_shared_plan`/`add_account`/`add_rule`, plus direct `item()`
+construction for the plain income/expense items) and cross-checked against every number
+observed on-screen earlier in this session — Incoming $5,880 (Employment $5,300 + Resale
+[eBay $250 + Marketplace $150] + Dividends $180), Outgoing $2,410.99, Net worth -$210,750,
+Spotify Family's $9/$27 split with Sam/Alex each owing $9 — all now match exactly. One
+acknowledged simplification: month-to-month historical variation (the different P&L figures
+per month in History/Analytics) was not reconstructed — every month now shows the same
+flat total, since recreating exact historical per-occurrence overrides for 7 months wasn't
+judged worth the effort for demo data. `data/months/*.json` was confirmed to be an unused
+legacy artifact (the app derives everything from the flat `items.json`), so it didn't need
+touching.
 
 ---
 
@@ -296,8 +342,8 @@ savings went here, by Sep/Aug 2026 · ~N mo (avg +$3,311/mo)".
 
 ## Status
 
-**#1–#5, #7, #8 are fixed and verified** (114 tests pass throughout; each fix has a headless
-verification recorded in its section above):
+**All 8 numbered findings are fixed and verified** (114 tests pass throughout; each fix has a
+headless verification recorded in its section above):
 
 - #1 Overview budget widget — empty-state filter + `on_change` wiring.
 - #2 Dialog off-screen placement — shared `place_near_cursor()` clamp, applied to all 10
@@ -305,13 +351,17 @@ verification recorded in its section above):
 - #3 Money-field select-on-focus — `MoneySpin`, applied to every money spinbox.
 - #4 Recurring-scope prompt firing on creation — `ItemStore.is_first_occurrence`.
 - #5 Tab-to-amount flow on new items — `InlineEdit.on_tab` + `_commit(advance_to=...)`.
+- #6 Search result highlight/scroll-to — `flash_widget()` + `LedgerCard.flash_row()` +
+  `SettingsPage.flash_account()`; also fixed a real silent-no-op bug (Account results pointed
+  at a page key, `"networth"`, that never existed).
 - #7 Sidebar module label truncation — ellipsis + tooltip.
 - #8 Identical goal-projection captions — clarified wording for the shared-rate (unlinked)
   case; linked goals were already correct.
 
-**Remaining, not actioned (by design):**
+**#9** (sparse pages, one-item overflow menu) is judgement/taste, not a defect — left for a
+future design pass rather than a targeted fix.
 
-- **#6** is already tracked and deliberately deferred (needs a larger cross-page focus-id
-  mechanism) — see `docs/people-pipeline-and-efficiency.md` §4.
-- **#9** (sparse pages, one-item overflow menu) is judgement/taste, not a defect — left for a
-  future design pass rather than a targeted fix.
+**Unplanned side effect, since resolved:** implementing #6's verification surfaced that this
+session's own test scripts had emptied the live `data/items.json` demo dataset. Rebuilt per the
+user's direction and cross-checked against every on-screen figure from this session — see #6's
+"Aside" note above for the full account.

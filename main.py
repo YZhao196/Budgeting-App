@@ -34,7 +34,7 @@ from widgets import (
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
     ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
-    SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, hsep,
+    SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, flash_widget, hsep,
     label, money, repeat_label, retain_size, tag_chip,
 )
 
@@ -1560,7 +1560,8 @@ class SettingsPage(QWidget):
         dlay.addWidget(rst, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(dcard)
         lay.addStretch(1)
-        outer.addWidget(scrollable(content))
+        self._scroll = scrollable(content)
+        outer.addWidget(self._scroll)
 
     def set_context(self, doc, year, month):
         self.doc = doc
@@ -1666,6 +1667,7 @@ class SettingsPage(QWidget):
 
     def _refresh_accounts(self):
         clear_layout(self._accounts_box)
+        self._account_row_widgets = {}
         cur = self._cur()
         accts = self.dm.accounts()
         if not accts:
@@ -1674,7 +1676,10 @@ class SettingsPage(QWidget):
             self._nw_total.setText("")
             return
         for a in accts:
-            self._accounts_box.addLayout(self._account_row(a, cur))
+            w = self._account_row(a, cur)
+            self._accounts_box.addWidget(w)
+            if a.get("id"):
+                self._account_row_widgets[a["id"]] = w
         nw = B.net_worth(accts)
         col = T.GREEN if nw["net"] >= 0 else T.RED
         self._nw_total.setText(f"Net worth  {money(nw['net'], cur, signed=False)}")
@@ -1682,7 +1687,9 @@ class SettingsPage(QWidget):
 
     def _account_row(self, a, cur):
         liab = a.get("kind") in ("debt", "credit")
-        row = QHBoxLayout(); row.setSpacing(8)
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         row.addWidget(label(a.get("name", ""), T.TEXT, 12))
         row.addWidget(label(self._ACC_KIND_LABEL.get(a.get("kind", "cash"),
                                                       a.get("kind", "")), T.TEXT_DIM, 10))
@@ -1697,7 +1704,16 @@ class SettingsPage(QWidget):
         rm.setToolTip("Remove account")
         rm.clicked.connect(lambda _=False, ac=a: self._remove_account(ac))
         row.addSpacing(6); row.addWidget(ed); row.addWidget(rm)
-        return row
+        return row_widget
+
+    def flash_account(self, acct_id):
+        """Scroll to and briefly highlight one account row — called when
+        search navigation lands here so the found account isn't a hunt."""
+        w = getattr(self, "_account_row_widgets", {}).get(acct_id)
+        if w is None:
+            return
+        self._scroll.ensureWidgetVisible(w, 0, 60)
+        flash_widget(w)
 
     def _add_account(self):
         res = AccountDialog.create(self, self._cur())
@@ -2910,6 +2926,15 @@ class MainWindow(QMainWindow):
         if result.get("kind") == "Person" and hasattr(self, "subs"):
             self.subs.tabbar.set_active("People")
             self.subs._switch("People")
+        rid = result.get("id")
+        kind = result.get("kind")
+        if not rid:
+            return
+        if target == "overview" and kind in ("Income", "Expense"):
+            card = self.overview.income_card if kind == "Income" else self.overview.expense_card
+            card.flash_row(rid)
+        elif target == "settings" and kind == "Account":
+            self.settings.flash_account(rid)
 
     def _apply_sidebar(self):
         """Show/hide sidebar tabs per settings; bounce off a hidden current page."""

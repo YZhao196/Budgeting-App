@@ -46,6 +46,15 @@ ROW_H    = 32
 ANIMATE = True
 
 
+def flash_widget(widget, revert_style="", duration_ms=1500):
+    """Briefly tint a widget's background to call it out — used to draw the
+    eye to a row that search navigation just jumped to."""
+    c = QColor(T.AMBER); c.setAlpha(55)
+    widget.setStyleSheet(
+        f"background:rgba({c.red()},{c.green()},{c.blue()},{c.alpha()});")
+    QTimer.singleShot(duration_ms, lambda w=widget: w.setStyleSheet(revert_style))
+
+
 def place_near_cursor(dlg):
     """Position a just-created dialog at the cursor, clamped to stay fully on
     the current screen — a plain move(QCursor.pos()) can push a dialog
@@ -1220,6 +1229,39 @@ class LedgerCard(QFrame):
 
     def _add_row(self, node, depth, active=True):
         self.list_box.addWidget(CategoryRow(self, node, self.kind, depth, active))
+
+    # -- search navigation: scroll to + call out a specific row ----------- #
+    def _find_row_widget(self, node_id):
+        for i in range(self.list_box.count()):
+            w = self.list_box.itemAt(i).widget()
+            if isinstance(w, CategoryRow) and w.node.get("id") == node_id:
+                return w
+        return None
+
+    def _find_parent_with_child(self, node_id):
+        for n in self.nodes():
+            for ch in (n.get("children") or []):
+                if ch.get("id") == node_id:
+                    return n
+        return None
+
+    def flash_row(self, node_id: str):
+        """Scroll to and briefly highlight the row for node_id — called when
+        search navigation lands here so the found item isn't a needle hunt."""
+        row = self._find_row_widget(node_id)
+        if row is None:
+            parent = self._find_parent_with_child(node_id)
+            if parent is not None and not parent.get("expanded"):
+                if self.store:
+                    self.store.set_expanded(self._def_of(parent), True)
+                else:
+                    parent["expanded"] = True
+                self.rebuild()
+                row = self._find_row_widget(node_id)
+        if row is None:
+            return
+        self._scroll.ensureWidgetVisible(row, 0, 60)
+        flash_widget(row, revert_style=f"#Row:hover{{background:{T.BG_HOVER};}}")
 
     def _cur_ym(self):
         y, m = self.doc.get("month", "2026-01").split("-")

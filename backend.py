@@ -745,7 +745,8 @@ def search(store, query: str) -> list[dict]:
                     kind = "Income" if n.get("type") == "income" else "Expense"
                     target = "overview"
                 out.append({"kind": kind, "name": name, "target": target,
-                            "detail": " · ".join(n.get("tags") or [])})
+                            "detail": " · ".join(n.get("tags") or []),
+                            "id": n.get("id")})
             if n.get("children"):
                 scan(n["children"])
     scan(store.items())
@@ -756,8 +757,11 @@ def search(store, query: str) -> list[dict]:
                         "target": "subscriptions"})
     for a in store.accounts():
         if q in a.get("name", "").lower():
+            # "settings" — that's where the Net worth accounts card lives;
+            # there is no separate "networth" page.
             out.append({"kind": "Account", "name": a["name"],
-                        "detail": a.get("kind", ""), "target": "networth"})
+                        "detail": a.get("kind", ""), "target": "settings",
+                        "id": a.get("id")})
     for t in store.transactions():
         if q in (t.get("description", "") or "").lower():
             out.append({"kind": "Transaction", "name": t.get("description", ""),
