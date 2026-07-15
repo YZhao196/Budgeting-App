@@ -1106,9 +1106,17 @@ class GoalsPage(QWidget):
                                if linked else max(0.0, avg_pnl))
             eta = B.goal_eta(g["saved"], g["target"], monthly_contrib, _dt.today())
             if eta["months"]:
-                src = (f"linked {money(monthly_contrib, cur)}/mo"
-                       if linked else f"avg {money(monthly_contrib, cur)}/mo")
-                proj = (f"on track by {dm.MONTH_ABBR[eta['month']]} {eta['year']}"
+                if linked:
+                    lead = "on track by"
+                    src = f"linked {money(monthly_contrib, cur)}/mo"
+                else:
+                    # No linked expense — this goal is paced off the whole
+                    # household's average savings, same as every other
+                    # unlinked goal. Say so, rather than implying a
+                    # goal-specific date when several goals share one rate.
+                    lead = "if all savings went here, by"
+                    src = f"avg {money(monthly_contrib, cur)}/mo"
+                proj = (f"{lead} {dm.MONTH_ABBR[eta['month']]} {eta['year']}"
                         f"  ·  ~{eta['months']} mo  ({src})")
                 box.addWidget(label(proj, T.TEXT_DIM, 10))
                 if len(eta["projection"]) > 1:
@@ -2852,7 +2860,11 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(mp["widget"])
             TITLES[key] = mp["title"]
             self._NAV_VIS[key] = (False, False)
-            self.sidebar.add_module_nav(key, mp["icon"], mp["title"][:9])
+            full_title = mp["title"]
+            short = full_title if len(full_title) <= 9 else full_title[:9] + "…"
+            nav_btn = self.sidebar.add_module_nav(key, mp["icon"], short)
+            if short != full_title:
+                nav_btn.setToolTip(full_title)
             self._module_keys.append(key)
         self.settings.set_module_info(self._module_loaded, self._module_errors,
                                       _mods.modules_dir())

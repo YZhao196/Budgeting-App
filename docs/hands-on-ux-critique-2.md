@@ -199,7 +199,7 @@ Edit the amount of an existing recurring item (Rent) → the 3-way prompt still 
 
 ---
 
-## 5. Tab from a new item's name doesn't reach the amount — LOW-MED
+## 5. Tab from a new item's name doesn't reach the amount — ✅ FIXED
 
 **Observed:** After "+ Add item", the name is pre-selected for typing, but Tab commits the name
 and drops focus — the amount stays `$0` with no caret. You must click the amount separately, so
@@ -209,6 +209,16 @@ adding an item is never a pure keyboard action.
 same row and `selectAll()` its text (pairs naturally with `MoneySpin` from #3).
 
 **Verify:** "+ Add item" → type name → Tab → type amount → Enter, without touching the mouse.
+
+**Status:** `InlineEdit` (`widgets.py:730`) takes an optional `on_tab` callback and overrides
+`focusNextPrevChild` to intercept forward-Tab specifically, so it can commit-and-advance instead
+of just losing focus. The name editor's `on_tab` (wired in `CategoryRow`, `widgets.py:865`,
+leaf rows only) calls `LedgerCard._commit(node, "name", v, advance_to="amount")`; `_commit`
+(`widgets.py:1299`) now takes an `advance_to` param that sets `self._editing` to the next field
+instead of `None`. `InlineEdit._grab` already focuses + `selectAll()`s whatever field opens, so
+the amount editor comes up pre-selected for free. Verified headless end-to-end: "+ Add item" →
+type "Freelance" → simulate Tab → the amount `InlineEdit` has focus with its `"0"` fully
+selected → typing `"450"` replaces it cleanly — the full flow works with no mouse click.
 
 ---
 
@@ -224,7 +234,7 @@ Already documented and deliberately deferred: `docs/hands-on-ux-critique.md` #2 
 
 ---
 
-## 7. Sidebar module label is hard-truncated to "Quick sta" — LOW
+## 7. Sidebar module label is hard-truncated to "Quick sta" — ✅ FIXED
 
 **Observed:** The module page titles itself "Quick stats"; the sidebar shows `Quick sta` — no
 ellipsis, no tooltip, so the real name is undiscoverable. Any user module with a title longer
@@ -238,9 +248,13 @@ button. (Previously raised as `docs/critique-and-stock-plan.md` #2; still open.)
 
 **Verify:** A module titled "Quick stats" renders `Quick sta…` and hovering shows the full name.
 
+**Status:** Implemented as specified at `main.py:2860` — titles ≤ 9 chars are unchanged; longer
+ones render as `title[:9] + "…"` with `setToolTip(full_title)` on the nav button. Verified
+headless: the "Quick stats" module's sidebar button reports `toolTip() == "Quick stats"`.
+
 ---
 
-## 8. Every goal projects at the same rate — LOW-MED (clarity/correctness)
+## 8. Every goal projects at the same rate — ✅ FIXED (minimal/honest option)
 
 **Observed:** All three goals show an identical **"avg +$3,311/mo"**, and near-identical "on
 track by" dates — because each goal is projected using the *total* monthly savings rate,
@@ -258,6 +272,16 @@ Vacation simultaneously, which overstates how fast any of them actually complete
 **Verify:** With 3 goals and one savings rate, the projected completion dates are consistent
 with a plan a user could actually execute — or the caption states the assumption outright.
 
+**Status:** Took the minimal/honest option — the maths was already correct for **linked**
+goals (`GoalsPage._goal_row`, `main.py:1105`, sums only that goal's linked expenses); the
+identical captions only happened for **unlinked** goals falling back to the shared `avg_pnl`,
+which was true for all 3 demo goals. Changed the caption lead only for that unlinked case, from
+"on track by {date}" to "if all savings went here, by {date}" (`main.py:1108-1117`), making the
+shared-rate assumption explicit instead of implying per-goal pacing. Linked goals keep the
+original "on track by" wording since their pacing genuinely is goal-specific. No change to
+`goal_eta`/the underlying maths. Verified headless: all three demo goals now render "if all
+savings went here, by Sep/Aug 2026 · ~N mo (avg +$3,311/mo)".
+
 ---
 
 ## 9. Minor
@@ -272,7 +296,7 @@ with a plan a user could actually execute — or the caption states the assumpti
 
 ## Status
 
-**#1–#4 are fixed and verified** (114 tests pass throughout; each fix has a headless
+**#1–#5, #7, #8 are fixed and verified** (114 tests pass throughout; each fix has a headless
 verification recorded in its section above):
 
 - #1 Overview budget widget — empty-state filter + `on_change` wiring.
@@ -280,8 +304,14 @@ verification recorded in its section above):
   affected dialogs.
 - #3 Money-field select-on-focus — `MoneySpin`, applied to every money spinbox.
 - #4 Recurring-scope prompt firing on creation — `ItemStore.is_first_occurrence`.
+- #5 Tab-to-amount flow on new items — `InlineEdit.on_tab` + `_commit(advance_to=...)`.
+- #7 Sidebar module label truncation — ellipsis + tooltip.
+- #8 Identical goal-projection captions — clarified wording for the shared-rate (unlinked)
+  case; linked goals were already correct.
 
-**Remaining, not yet actioned:**
+**Remaining, not actioned (by design):**
 
-5. **#5 Tab flow**, **#7 sidebar ellipsis**, **#8 goal projection labelling** — polish.
-6. **#6** is already tracked and deliberately deferred; **#9** is judgement, not a defect.
+- **#6** is already tracked and deliberately deferred (needs a larger cross-page focus-id
+  mechanism) — see `docs/people-pipeline-and-efficiency.md` §4.
+- **#9** (sparse pages, one-item overflow menu) is judgement/taste, not a defect — left for a
+  future design pass rather than a targeted fix.

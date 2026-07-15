@@ -728,12 +728,15 @@ def _dot_icon(color, size=14):
 
 
 class InlineEdit(QLineEdit):
-    """A QLineEdit that commits on Enter / focus-out and cancels on Esc."""
-    def __init__(self, text, on_commit, on_cancel, right=False, px=13):
+    """A QLineEdit that commits on Enter / focus-out and cancels on Esc. An
+    optional on_tab callback lets Tab commit-and-advance to another field
+    (e.g. a new item's name -> amount) instead of just closing the editor."""
+    def __init__(self, text, on_commit, on_cancel, right=False, px=13, on_tab=None):
         super().__init__(str(text))
         self._done = False
         self._on_commit = on_commit
         self._on_cancel = on_cancel
+        self._on_tab = on_tab
         f = QFont(T.FONT_FAMILY); f.setPixelSize(px); self.setFont(f)
         if right:
             self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -759,6 +762,15 @@ class InlineEdit(QLineEdit):
             self._on_cancel()
             return
         super().keyPressEvent(e)
+
+    def focusNextPrevChild(self, next):
+        # Forward-Tab with an advance handler: commit-and-advance instead of
+        # letting Qt's default tab-order traversal just close the editor.
+        if next and self._on_tab is not None and not self._done:
+            self._done = True
+            self._on_tab(self.text())
+            return False
+        return super().focusNextPrevChild(next)
 
 
 class PriorityCell(QWidget):
@@ -853,8 +865,10 @@ class CategoryRow(QWidget):
         # ── name ─────────────────────────────────────────────────────── #
         nm_col = (T.TEXT if depth == 0 else T.TEXT_MUTED) if active else T.TEXT_DIM
         if editing == (node["id"], "name"):
-            ie = InlineEdit(node["name"],
-                            lambda v: card._commit(node, "name", v), card._cancel)
+            ie = InlineEdit(
+                node["name"], lambda v: card._commit(node, "name", v), card._cancel,
+                on_tab=(lambda v: card._commit(node, "name", v, advance_to="amount"))
+                       if leaf else None)
             ie.setMinimumWidth(60)
             lay.addWidget(ie, 1)
         else:
@@ -1282,7 +1296,7 @@ class LedgerCard(QFrame):
         QToolTip.showText(QCursor.pos(), message, self)
         self.rebuild()
 
-    def _commit(self, node, field, value):
+    def _commit(self, node, field, value, advance_to=None):
         self._editing = None
         if field == "name":
             v = value.strip()
@@ -1291,6 +1305,8 @@ class LedgerCard(QFrame):
             if self.store:
                 self.store.edit_field(self._def_of(node), self._occ_of(node),
                                       "name", v, scope="all")
+                if advance_to:
+                    self._editing = (node["id"], advance_to)
                 self.changed.emit(); return
             node["name"] = v
         elif field == "amount":
@@ -1306,6 +1322,8 @@ class LedgerCard(QFrame):
                                       "amount", ev, scope=scope)
                 self.changed.emit(); return
             node["amount"] = ev
+        if advance_to:
+            self._editing = (node["id"], advance_to)
         self.rebuild(); self.changed.emit()
 
     # -- recurrence + due-date popups ------------------------------------- #
