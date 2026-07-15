@@ -330,20 +330,41 @@ savings went here, by Sep/Aug 2026 · ~N mo (avg +$3,311/mo)".
 
 ---
 
-## 9. Minor
+## 9. Minor — ✅ ADDRESSED
 
 - **Sparse pages.** Goals, History and Quick stats now leave large empty regions below their
   content — collapsing the goal charts (round 1 #8) fixed the scroll but left the page
   bottom-heavy with whitespace. Worth reconsidering what earns the space.
+
+  **Status:** Treated as a layout-rhythm issue, not a content gap — no new sections were
+  invented (that would've been scope creep for a "minor/polish" item). `GoalsPage` and
+  `HistoryPage` (`main.py`) got more generous inter-card spacing (14px → 22px / 20px) so the
+  three-ish cards on each page read as intentionally-separated content rather than cramped
+  content floating above a dead zone; History's cumulative-savings chart also grew
+  (180px → 220px min height). `Quick stats` was deliberately left untouched — it's the
+  example/demo module for third-party plugin authors (`data/modules/example_quickstats.py`),
+  and padding it with fake content would misrepresent what it's for. Separately, rebuilding the
+  demo data (see #6's aside) gave `HistoryPage` 13 real months instead of ~7, which on its own
+  now fills the page much more than before.
+
 - **One-item overflow menu.** The ledger `⋯` menu holds a single entry ("Clear all…"). Fine,
   but a one-item menu is a slightly odd affordance; revisit if nothing else joins it.
+
+  **Status:** Gave it a real second (and situationally third) action instead of just padding
+  the menu: `LedgerCard._open_overflow` (`widgets.py`) now adds "Expand all" when any parent
+  category is collapsed and "Collapse all" when any is expanded, above a separator, before
+  "Clear all…". `_set_all_expanded(value)` applies it across every parent/category node in one
+  step. Verified headless: with "Resale" collapsed the menu shows only "Expand all"; after
+  toggling, it shows only "Collapse all" — the menu is genuinely multi-item whenever a ledger
+  has any grouped/nested categories (true for the rebuilt demo data's "Resale" parent), and
+  gracefully falls back to just "Clear all…" for a flat ledger with no groups.
 
 ---
 
 ## Status
 
-**All 8 numbered findings are fixed and verified** (114 tests pass throughout; each fix has a
-headless verification recorded in its section above):
+**Every finding in this document — all 9 — is now addressed** (114 tests pass throughout; each
+fix has a headless verification recorded in its section above):
 
 - #1 Overview budget widget — empty-state filter + `on_change` wiring.
 - #2 Dialog off-screen placement — shared `place_near_cursor()` clamp, applied to all 10
@@ -357,9 +378,8 @@ headless verification recorded in its section above):
 - #7 Sidebar module label truncation — ellipsis + tooltip.
 - #8 Identical goal-projection captions — clarified wording for the shared-rate (unlinked)
   case; linked goals were already correct.
-
-**#9** (sparse pages, one-item overflow menu) is judgement/taste, not a defect — left for a
-future design pass rather than a targeted fix.
+- #9 Sparse pages — layout-rhythm spacing pass (no invented content); one-item overflow menu —
+  real "Expand all"/"Collapse all" actions added, conditionally shown.
 
 **Unplanned side effect, since resolved:** implementing #6's verification surfaced that this
 session's own test scripts had emptied the live `data/items.json` demo dataset. Rebuilt per the

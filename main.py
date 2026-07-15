@@ -970,7 +970,10 @@ class GoalsPage(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(14)
+        # Generous separation between sections — this page has only three
+        # cards, so tight spacing left a large dead zone below; wider gaps
+        # make the whitespace read as intentional rhythm instead.
+        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(22)
 
         # this-month targets
         trow, self.tiles = tile_row(["Actual P&L", "Target P&L", "Savings rate"])
@@ -1010,7 +1013,7 @@ class GoalsPage(QWidget):
             elay.addLayout(r)
         save = _button("Save targets", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         save.clicked.connect(self._save_targets)
-        elay.addSpacing(2); elay.addWidget(save, 0, Qt.AlignmentFlag.AlignLeft)
+        elay.addSpacing(8); elay.addWidget(save, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(ecard)
         lay.addStretch(1)
         outer.addWidget(scrollable(content))
@@ -1267,7 +1270,7 @@ class HistoryPage(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(14)
+        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(20)
 
         trow, self.tiles = tile_row(
             ["Total saved", "Avg / month", "Best month", "Months tracked"])
@@ -1275,7 +1278,7 @@ class HistoryPage(QWidget):
 
         ccard, clay = card()
         clay.addWidget(label("Cumulative savings", T.TEXT_MUTED, 12))
-        self.cum = LineChart(); self.cum.setMinimumHeight(180)
+        self.cum = LineChart(); self.cum.setMinimumHeight(220)
         clay.addWidget(self.cum)
         lay.addWidget(ccard)
 

@@ -1289,7 +1289,17 @@ class LedgerCard(QFrame):
         menu.setStyleSheet(
             f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
             f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:0px;}}"
-            f"QMenu::item:selected{{background:{T.BG_HOVER};}}")
+            f"QMenu::item:selected{{background:{T.BG_HOVER};}}"
+            f"QMenu::separator{{height:1px; background:{T.BORDER}; margin:4px 2px;}}")
+        parents = [n for n in self.nodes() if n.get("children")]
+        if parents:
+            if any(not n.get("expanded") for n in parents):
+                exp = menu.addAction("Expand all")
+                exp.triggered.connect(lambda: self._set_all_expanded(True))
+            if any(n.get("expanded") for n in parents):
+                col = menu.addAction("Collapse all")
+                col.triggered.connect(lambda: self._set_all_expanded(False))
+            menu.addSeparator()
         act = menu.addAction("Clear all…")
         act.triggered.connect(self._clear_all)
         menu.exec(self._overflow.mapToGlobal(
@@ -1302,6 +1312,18 @@ class LedgerCard(QFrame):
             self.changed.emit()
             return
         node["expanded"] = not node.get("expanded")
+        self.rebuild()
+        self.changed.emit()
+
+    def _set_all_expanded(self, value: bool):
+        parents = [n for n in self.nodes() if n.get("children")]
+        if self.store:
+            for n in parents:
+                self.store.set_expanded(self._def_of(n), value)
+            self.changed.emit()
+            return
+        for n in parents:
+            n["expanded"] = value
         self.rebuild()
         self.changed.emit()
 
