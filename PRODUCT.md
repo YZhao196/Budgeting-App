@@ -4,10 +4,6 @@
 
 product
 
-## Platform
-
-web
-
 ## Users
 
 A single person managing their own personal finances — recurring income and expenses, shared subscriptions with a small circle of people (housemates, family), savings goals, and bank-imported transactions. Not built for distribution; this is a personal tool used directly by its own author, at a desk, checking in regularly rather than glancing occasionally.
@@ -22,11 +18,8 @@ The plan and the bank statement live in the same tool and are held to the same s
 
 ## Brand Personality
 
-Precise and no-nonsense, dense rather than simplified. The reference point is a terminal or trading-desk tool, not a consumer finance app — comfortable showing real complexity (recurrence rules, split shares, multi-account net worth) rather than smoothing it into a friendlier but vaguer summary. Bad news (a deficit, an overdue bill, negative net worth) is reported factually — color, label, and position together, never alarm chrome or apologetic copy.
+Precise and no-nonsense. Comfortable showing real complexity (recurrence rules, split shares, multi-account net worth) rather than smoothing it into a friendlier but vaguer summary. Bad news (a deficit, an overdue bill, negative net worth) is reported factually — color, label, and position together, never alarm chrome or apologetic copy.
 
-## Anti-references
-
-Explicitly not the rounded, colorful, friendly consumer-finance style of Mint, YNAB, or Monarch. No gradients, no soft shadows, no rounded corners, no decorative color. This should read as a tool, not a lifestyle app.
 
 ## Design Principles
 
@@ -40,6 +33,3 @@ Functional color only. Green/red/amber always encode a real state (income vs. ex
 
 Calm under bad news. Deficits and overruns are reported plainly, in the same visual language as good news — no separate "alarm" treatment.
 
-## Accessibility & Inclusion
-
-Body text at ≥4.5:1 contrast against its background (already the working assumption behind `theme.py`'s `TEXT_MUTED`/`TEXT_DIM` tokens). Respect reduced-motion for the existing entry animations (`widgets.ANIMATE`). Red/expense and green/income are never the only signal — sign, label, and position (Incoming vs. Outgoing columns) always corroborate the color, since red/green is a common colorblind failure point.
