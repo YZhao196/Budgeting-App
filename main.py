@@ -32,7 +32,7 @@ import theme as T
 from widgets import (
     AccountDialog, AreaChart, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
-    LedgerCard, LineChart, MetricTile, PersonDialog, PredictedIncomeCard,
+    LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
     ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
     SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, hsep,
     label, money, repeat_label, retain_size, tag_chip,
@@ -161,7 +161,7 @@ class OverviewPage(QWidget):
                               self.year, self.month)
         rows = sorted(
             [(r["name"], r["ideal"], r["actual"]) for r in rep["rows"]
-             if r["ideal"] or r["actual"]],
+             if r["ideal"]],
             key=lambda r: -max(r[1], r[2]))[:5]
         self.budget_card.setVisible(bool(rows))
         self.budget_mini.set_data(rows, self.doc.get("currency", "$"))
@@ -376,9 +376,10 @@ class _LegendRow(QWidget):
 class _AnalyticsOverview(QWidget):
     navigate_to = pyqtSignal(int, int)
 
-    def __init__(self, manager, doc, year, month):
+    def __init__(self, manager, doc, year, month, on_change=None):
         super().__init__()
         self.dm = manager
+        self._on_change = on_change
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
@@ -788,7 +789,10 @@ class _AnalyticsOverview(QWidget):
         if res:
             for cid, ideal in res.items():
                 self.dm.set_ideal(cid, ideal)
-            self.set_context(self.doc, self._year, self._month)
+            if self._on_change:
+                self._on_change()          # refreshes Overview's budget rail too
+            else:
+                self.set_context(self.doc, self._year, self._month)
 
     def _on_trend_click(self, idx: int):
         if not (0 <= idx < len(self._months_series)):
@@ -854,7 +858,7 @@ class _AnalyticsOverview(QWidget):
 #  Goals – monthly target progress + named savings goals
 # --------------------------------------------------------------------------- #
 def _spin(lo, hi, decimals=True):
-    sp = QDoubleSpinBox() if decimals else QSpinBox()
+    sp = MoneySpin() if decimals else QSpinBox()
     sp.setRange(lo, hi)
     if decimals:
         sp.setDecimals(0); sp.setPrefix("$")
@@ -895,7 +899,7 @@ class AnalyticsPage(QWidget):
         outer.addWidget(tabhost)
 
         self._stack = QStackedWidget()
-        self._ov   = _AnalyticsOverview(manager, doc, year, month)
+        self._ov   = _AnalyticsOverview(manager, doc, year, month, on_change)
         self.navigate_to = self._ov.navigate_to
         self._inc  = LedgerDetailPage("income",  manager, doc, year, month, self._changed)
         self._exp  = LedgerDetailPage("expense", manager, doc, year, month, self._changed)

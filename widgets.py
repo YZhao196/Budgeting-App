@@ -16,10 +16,11 @@ from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QRectF, QSize, Qt,
 from PyQt6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QIcon,
                          QLinearGradient, QPainter, QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (
-    QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget, QWidgetAction,
+    QApplication, QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QWidgetAction,
 )
 
 import backend as B
@@ -43,6 +44,30 @@ ROW_H    = 32
 
 # Entry-reveal animations (disabled in headless --shot mode).
 ANIMATE = True
+
+
+def place_near_cursor(dlg):
+    """Position a just-created dialog at the cursor, clamped to stay fully on
+    the current screen — a plain move(QCursor.pos()) can push a dialog
+    launched from a right/bottom-edge button past the screen edge."""
+    dlg.adjustSize()
+    scr = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+    avail = scr.availableGeometry()
+    geo = dlg.frameGeometry()
+    geo.moveTopLeft(QCursor.pos())
+    geo.moveLeft(max(avail.left(), min(geo.left(), avail.right() - geo.width())))
+    geo.moveTop(max(avail.top(), min(geo.top(), avail.bottom() - geo.height())))
+    dlg.move(geo.topLeft())
+
+
+class MoneySpin(QDoubleSpinBox):
+    """QDoubleSpinBox that selects its text on focus, so typing immediately
+    replaces the value instead of splicing into it (e.g. clicking a "$0.00"
+    field and typing "200" would otherwise produce "$0.20")."""
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        QTimer.singleShot(0, self.selectAll)
 
 
 def _reveal_anim(widget):
@@ -1481,6 +1506,8 @@ class LedgerCard(QFrame):
             return "instance"               # legacy path ignores scope
         if not self._is_recurring(node):
             return "all"                    # only one occurrence — scope is moot
+        if self.store.is_first_occurrence(self._def_of(node), self._occ_of(node)):
+            return "all"                    # freshly created — nothing to disambiguate yet
         return self._ask_edit_scope(node)
 
     def _ask_recurring_scope(self, node) -> str | None:
@@ -1505,6 +1532,9 @@ class LedgerCard(QFrame):
     def _delete(self, node):
         is_recurring = bool(node.get("_recur") or node.get("recurring")
                             or node.get("repeat"))
+        if is_recurring and self.store and self.store.is_first_occurrence(
+                self._def_of(node), self._occ_of(node)):
+            is_recurring = False    # freshly created — nothing to disambiguate yet
         if is_recurring:
             scope = self._ask_recurring_scope(node)
             if scope is None:
@@ -1780,7 +1810,7 @@ class RepeatDialog(QDialog):
     @staticmethod
     def edit(parent, repeat):
         dlg = RepeatDialog(parent, repeat)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return (False, None)
         return (True, dlg._result)
@@ -1892,7 +1922,7 @@ class TagDialog(QDialog):
     @staticmethod
     def edit(parent, tags, suggestions=None):
         dlg = TagDialog(parent, tags, suggestions)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return (False, None)
         return (True, dlg._result)
@@ -2002,7 +2032,7 @@ class NoteDialog(QDialog):
     @staticmethod
     def edit_note(parent, name, note):
         dlg = NoteDialog(parent, name, note)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return (False, None)
         return (True, dlg._result)
@@ -2122,7 +2152,7 @@ class PersonDialog(QDialog):
     @staticmethod
     def create(parent):
         dlg = PersonDialog(parent)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
@@ -2130,7 +2160,7 @@ class PersonDialog(QDialog):
     @staticmethod
     def edit(parent, person):
         dlg = PersonDialog(parent, person)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
@@ -2171,7 +2201,7 @@ class AccountDialog(QDialog):
         lay.addWidget(label("Type", T.TEXT_MUTED, 10)); lay.addWidget(self.kind)
 
         lay.addWidget(label("Balance", T.TEXT_MUTED, 10))
-        self.balance = QDoubleSpinBox(); self.balance.setRange(0, 100_000_000)
+        self.balance = MoneySpin(); self.balance.setRange(0, 100_000_000)
         self.balance.setDecimals(2); self.balance.setPrefix(currency)
         self.balance.setValue(float(a.get("balance", 0.0)))
         self.balance.setStyleSheet(ist)
@@ -2209,13 +2239,13 @@ class AccountDialog(QDialog):
     @staticmethod
     def create(parent, currency="$"):
         dlg = AccountDialog(parent, currency)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
     @staticmethod
     def edit(parent, account, currency="$"):
         dlg = AccountDialog(parent, currency, account=account)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
@@ -2255,7 +2285,7 @@ class BudgetDialog(QDialog):
             if r.get("planned"):
                 rw.addWidget(label(f"planned {money(r['planned'], currency, signed=False)}",
                                    T.TEXT_DIM, 10))
-            spin = QDoubleSpinBox(); spin.setRange(0, 10_000_000); spin.setDecimals(2)
+            spin = MoneySpin(); spin.setRange(0, 10_000_000); spin.setDecimals(2)
             spin.setPrefix(currency); spin.setValue(float(r.get("ideal", 0.0)))
             spin.setFixedWidth(112); spin.setStyleSheet(ist)
             self._spins[r["id"]] = spin
@@ -2285,7 +2315,7 @@ class BudgetDialog(QDialog):
     @staticmethod
     def edit(parent, rows, currency="$"):
         dlg = BudgetDialog(parent, rows, currency)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
@@ -2328,7 +2358,7 @@ class SharedPlanDialog(QDialog):
 
         row = QHBoxLayout(); row.setSpacing(10)
         cbox = QVBoxLayout(); cbox.addWidget(label("Amount", T.TEXT_MUTED, 10))
-        self.amount = QDoubleSpinBox(); self.amount.setRange(0, 1_000_000)
+        self.amount = MoneySpin(); self.amount.setRange(0, 1_000_000)
         self.amount.setDecimals(2); self.amount.setPrefix(currency); self.amount.setFixedWidth(130)
         cbox.addWidget(self.amount); row.addLayout(cbox)
         cyb = QVBoxLayout(); cyb.addWidget(label("Billing cycle", T.TEXT_MUTED, 10))
@@ -2478,7 +2508,7 @@ class SharedPlanDialog(QDialog):
         cb.setCursor(Qt.CursorShape.PointingHandCursor)
         cb.setStyleSheet(f"color:{T.TEXT};")
         cb.toggled.connect(self._sync)
-        spin = QDoubleSpinBox(); spin.setRange(0, 1_000_000); spin.setDecimals(2)
+        spin = MoneySpin(); spin.setRange(0, 1_000_000); spin.setDecimals(2)
         spin.setPrefix(self._currency); spin.setValue(float(share))
         spin.setFixedWidth(104); spin.setStyleSheet(self._ist())
         spin.valueChanged.connect(self._sync)
@@ -2694,7 +2724,7 @@ class SharedPlanDialog(QDialog):
     @staticmethod
     def create(parent, currency="$", store=None):
         dlg = SharedPlanDialog(parent, currency, store=store)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
@@ -2702,7 +2732,7 @@ class SharedPlanDialog(QDialog):
     @staticmethod
     def edit(parent, defn, currency="$", store=None):
         dlg = SharedPlanDialog(parent, currency, existing=defn, store=store)
-        dlg.move(QCursor.pos())
+        place_near_cursor(dlg)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg._result
@@ -4709,13 +4739,13 @@ class GoalDialog(QDialog):
         self.name = QLineEdit(g["name"] if g else "")
         lay.addWidget(self.name)
         lay.addWidget(label("Target amount", T.TEXT_MUTED, 11))
-        self.target = QDoubleSpinBox()
+        self.target = MoneySpin()
         self.target.setRange(0, 100_000_000); self.target.setDecimals(0)
         self.target.setPrefix(currency)
         self.target.setValue(g["target"] if g else 1000)
         lay.addWidget(self.target)
         lay.addWidget(label("Saved so far", T.TEXT_MUTED, 11))
-        self.saved = QDoubleSpinBox()
+        self.saved = MoneySpin()
         self.saved.setRange(0, 100_000_000); self.saved.setDecimals(0)
         self.saved.setPrefix(currency)
         self.saved.setValue(g["saved"] if g else 0)

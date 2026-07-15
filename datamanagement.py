@@ -679,6 +679,17 @@ class ItemStore:
             return None
         return scan(self.items())
 
+    def is_first_occurrence(self, def_id: str, occ_iso: str | None) -> bool:
+        """True when occ_iso is the definition's very first possible occurrence
+        — i.e. nothing precedes it, so a 'this / this+future / all' scope
+        prompt would be moot (every option produces the same result). Used to
+        skip the recurring-scope prompt on a freshly-created item's first
+        edit or delete."""
+        defn = self._find_def(def_id)
+        if defn is None or occ_iso is None:
+            return False
+        return defn.get("start") == occ_iso
+
     def edit_field(self, def_id: str, occ_iso: str | None, field: str,
                    value, scope: str = "instance") -> None:
         """Apply an edit to a definition with the chosen scope.
