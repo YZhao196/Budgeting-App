@@ -35,17 +35,39 @@ RED_BORDER    = "#382424"
 
 AMBER         = "#c8944a"   # warnings / due-soon
 
-# Greyscale series for donut / breakdown charts (8 distinct steps)
+# Categorical series for donut / breakdown / composition charts (8 distinct
+# steps). None of these may equal GREEN/RED/AMBER below — those are reserved
+# functional colours (income/expense/warning) and a category landing on one
+# of them would silently borrow that meaning (e.g. an arbitrary expense
+# category rendering in the exact red used everywhere else for "over
+# budget"). Assign per-category via category_color() below, not by a chart's
+# own local sort position, so the same category reads as the same colour on
+# every chart that shows it.
 SERIES = [
-    "#5da876",  # sage green
+    "#7a92a8",  # slate blue-gray
     "#6b8fc4",  # steel blue
-    "#c8944a",  # amber
-    "#b86060",  # terracotta
+    "#9a7a94",  # dusty mauve
+    "#a89268",  # muted gold/tan
     "#7a68a8",  # muted purple
     "#4aacac",  # teal
     "#c47a5a",  # copper
     "#8ab060",  # yellow-green
 ]
+
+
+def category_color(name: str) -> str:
+    """Stable colour for a category/tag/subscription name — the same name
+    always maps to the same SERIES slot, regardless of a chart's own local
+    sort order or which other categories happen to be present alongside it.
+    Uses a deterministic FNV-1a-style hash (not Python's built-in hash(),
+    which is randomised per-process for str) so the mapping is also stable
+    across app restarts, and mixes well enough that short, similar-length
+    names (e.g. "Water"/"Wifi") don't cluster onto the same slot the way a
+    plain character-sum hash would."""
+    h = 2166136261
+    for c in (name or ""):
+        h = ((h ^ ord(c)) * 16777619) & 0xFFFFFFFF
+    return SERIES[h % len(SERIES)]
 
 # Priority squares
 DOT_OVERDUE   = "#cc5555"   # red  – past due
@@ -64,12 +86,19 @@ HEADER_H    = 56
 RADIUS      = 0
 RADIUS_SM   = 0
 GAP         = 14            # gutter between the three main columns
+GAP_SECTION = 28            # extra breathing room between distinct topic
+                            # clusters on a long page (e.g. Analytics) — a
+                            # visual "paragraph break" uniform spacing can't
+                            # provide on its own
 
 WIN_W       = 1680
 WIN_H       = 980
 
-FONT_FAMILY       = "Arial Nova"         # base UI font (regular weight for legibility)
-FONT_FAMILY_LIGHT = "Arial Nova Light"   # large display numbers only (>= ~18px)
+FONT_FAMILY       = "Segoe UI"         # base UI font — Microsoft's UI-purpose-built
+                                        # sans, tuned for small-size legibility; a
+                                        # cleaner, more neutral choice than Arial Nova
+                                        # for a dense, numbers-heavy dashboard
+FONT_FAMILY_LIGHT = "Segoe UI Light"   # large display numbers only (>= ~18px)
 
 # --------------------------------------------------------------------------- #
 #  Global stylesheet
@@ -77,7 +106,7 @@ FONT_FAMILY_LIGHT = "Arial Nova Light"   # large display numbers only (>= ~18px)
 def global_qss() -> str:
     return f"""
     * {{
-        font-family: "{FONT_FAMILY}", "Arial", "Segoe UI", sans-serif;
+        font-family: "{FONT_FAMILY}", "Segoe UI", "Arial", sans-serif;
         color: {TEXT};
         outline: none;
     }}

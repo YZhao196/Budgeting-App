@@ -327,7 +327,6 @@ class Sidebar(QWidget):
              ("analytics",     "analytics", "Analytics"),
              ("subscriptions", "subs",      "Subs"),
              ("goals",         "goals",     "Goals"),
-             ("tracker",       "tracker",   "Tracker"),
              ("history",       "history",   "History")]
 
     def __init__(self):
@@ -366,7 +365,7 @@ class Sidebar(QWidget):
     # Overview and Settings can't be hidden (you need a home and a way back).
     ALWAYS = {"overview", "settings"}
     HIDEABLE = [("analytics", "Analytics"), ("subscriptions", "Subscriptions"),
-                ("goals", "Goals"), ("tracker", "Tracker"), ("history", "History")]
+                ("goals", "Goals"), ("history", "History")]
 
     def apply_hidden(self, hidden):
         hidden = set(hidden or [])
@@ -3796,8 +3795,7 @@ class StackedBarChart(QWidget):
         self.labels = labels
         self.categories = categories
         self.matrix = matrix
-        self.colors = colors or [T.SERIES[i % len(T.SERIES)]
-                                 for i in range(len(categories))]
+        self.colors = colors or [T.category_color(name) for name in categories]
         self.currency = currency
         self._hover = (-1, -1)
         self._hover_cat = -1
@@ -4275,145 +4273,6 @@ class AreaChart(QWidget):
                 (f"Debt {money(s['liabilities'], self.currency, signed=False)}", T.RED, False)])
 
 
-class SankeyChart(QWidget):
-    """Fixed three-column monthly cash flow: income sources → Cash → outflows
-    (expense categories + Savings), links drawn as gradient ribbons."""
-
-    def __init__(self):
-        super().__init__()
-        self.income: list[tuple[str, float]] = []
-        self.outflows: list[tuple[str, float]] = []
-        self.currency = "$"
-        self._links = []        # [(QPainterPath, color, src_name, dst_name, amt)]
-        self._hover = -1
-        self.setMouseTracking(True)
-        self.setMinimumHeight(260)
-
-    def set_data(self, income, outflows, currency="$"):
-        self.income = income
-        self.outflows = outflows
-        self.currency = currency
-        self._hover = -1
-        self.update()
-
-    def mouseMoveEvent(self, e):
-        pos = e.position()
-        hit = -1
-        for i, (path, *_rest) in enumerate(self._links):
-            if path.contains(pos):
-                hit = i
-        if hit != self._hover:
-            self._hover = hit
-            self.update()
-
-    def leaveEvent(self, e):
-        if self._hover != -1:
-            self._hover = -1
-            self.update()
-
-    def _column(self, items, x, node_w, plot_top, plot_h, gap):
-        """Lay one column of nodes vertically, height ∝ amount."""
-        total = sum(a for _, a in items) or 1.0
-        avail = plot_h - gap * max(0, len(items) - 1)
-        y = plot_top
-        out = []
-        for name, amt in items:
-            h = max(3.0, amt / total * avail)
-            out.append((name, amt, QRectF(x, y, node_w, h)))
-            y += h + gap
-        return out
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if not self.income and not self.outflows:
-            draw_empty(p, self.rect(), "No cash flow this month")
-            return
-        pad = 10
-        node_w = 12
-        plot_top, plot_h = pad + 4, self.height() - 2 * pad - 8
-        label_pad = 4
-        x_in = pad + 78
-        x_cash = self.width() / 2 - node_w / 2
-        x_out = self.width() - pad - 78 - node_w
-        gap = 6
-
-        inc_nodes = self._column(self.income, x_in, node_w, plot_top, plot_h, gap)
-        out_nodes = self._column(self.outflows, x_out, node_w, plot_top, plot_h, gap)
-        total_in = sum(a for _, a in self.income) or 1.0
-        total_out = sum(a for _, a in self.outflows) or 1.0
-        cash_h = plot_h * 0.5
-        cash_rect = QRectF(x_cash, plot_top + (plot_h - cash_h) / 2, node_w, cash_h)
-
-        self._links = []
-
-        def ribbon(r_src, x1, r_dst, x2, y_src, y_dst, h_src, h_dst, color):
-            path = QPainterPath()
-            mx = (x1 + x2) / 2
-            path.moveTo(x1, y_src)
-            path.cubicTo(mx, y_src, mx, y_dst, x2, y_dst)
-            path.lineTo(x2, y_dst + h_dst)
-            path.cubicTo(mx, y_dst + h_dst, mx, y_src + h_src, x1, y_src + h_src)
-            path.closeSubpath()
-            return path
-
-        # income → cash (stack entry points down the cash node)
-        cy_src = cash_rect.top()
-        for i, (name, amt, rect) in enumerate(inc_nodes):
-            h_cash = amt / total_in * cash_rect.height()
-            color = T.SERIES[i % len(T.SERIES)]
-            path = ribbon(rect, rect.right(), cash_rect, cash_rect.left(),
-                          rect.top(), cy_src, rect.height(), h_cash, color)
-            self._links.append((path, color, name, "Cash", amt))
-            cy_src += h_cash
-
-        # cash → outflows
-        cy_dst = cash_rect.top()
-        for j, (name, amt, rect) in enumerate(out_nodes):
-            h_cash = amt / total_out * cash_rect.height()
-            color = T.GREEN if name == "Savings" else T.SERIES[(j + 3) % len(T.SERIES)]
-            path = ribbon(cash_rect, cash_rect.right(), rect, rect.left(),
-                          cy_dst, rect.top(), h_cash, rect.height(), color)
-            self._links.append((path, color, "Cash", name, amt))
-            cy_dst += h_cash
-
-        # ribbons
-        for i, (path, color, src, dst, amt) in enumerate(self._links):
-            c = QColor(color)
-            c.setAlpha(150 if i == self._hover else 55)
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(c)
-            p.drawPath(path)
-
-        # nodes + labels
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(10); p.setFont(f)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(T.TEXT_MUTED)); p.drawRect(cash_rect)
-        for i, (name, amt, rect) in enumerate(inc_nodes):
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.SERIES[i % len(T.SERIES)]))
-            p.drawRect(rect)
-            p.setPen(QColor(T.TEXT_MUTED))
-            p.drawText(QRectF(pad, rect.center().y() - 8, 78 - label_pad, 16),
-                       int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                       name if len(name) <= 11 else name[:10] + "…")
-        for j, (name, amt, rect) in enumerate(out_nodes):
-            col = T.GREEN if name == "Savings" else T.SERIES[(j + 3) % len(T.SERIES)]
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(col)); p.drawRect(rect)
-            p.setPen(QColor(T.TEXT_MUTED))
-            p.drawText(QRectF(rect.right() + label_pad, rect.center().y() - 8, 78 - label_pad, 16),
-                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                       name if len(name) <= 11 else name[:10] + "…")
-        p.setPen(QColor(T.TEXT))
-        p.drawText(cash_rect.adjusted(-30, -18, 30, 0),
-                   int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), "Cash")
-
-        if self._hover != -1:
-            _, color, src, dst, amt = self._links[self._hover]
-            rect = self._links[self._hover][0].boundingRect()
-            draw_hover_pill(p, QRectF(self.rect()), rect.center().x(), rect.center().y(),
-                            [(f"{src} → {dst}", T.TEXT_MUTED, False),
-                             (money(amt, self.currency, signed=False), T.TEXT, True)])
-
-
 class SubscriptionTimeline(QWidget):
     """Horizontal date axis of upcoming renewals; each marker's radius scales
     with amount, colour keyed per subscription, staggered to avoid overlap."""
@@ -4480,7 +4339,7 @@ class SubscriptionTimeline(QWidget):
             cx = x0 + (x1 - x0) * frac
             r = 4 + 10 * math.sqrt(it["amount"] / amax)
             cy = axis_y - 16 - (k % 3) * 22          # stagger three rows
-            color = T.GREEN if it.get("type") == "income" else T.SERIES[k % len(T.SERIES)]
+            color = T.GREEN if it.get("type") == "income" else T.category_color(it.get("name", ""))
             # stem
             p.setPen(QPen(QColor(T.BORDER_SOFT), 1))
             p.drawLine(QPointF(cx, cy), QPointF(cx, axis_y))

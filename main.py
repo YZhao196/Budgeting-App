@@ -33,7 +33,7 @@ from widgets import (
     AccountDialog, AreaChart, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
-    ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
+    ProgressBar, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
     SubscriptionTimeline, SummaryCard, TopBar, TrackerItemDialog, WhoOwesBar, clear_layout,
     flash_widget, hsep, label, money, repeat_label, retain_size, tag_chip,
 )
@@ -42,10 +42,16 @@ from widgets import (
 # --------------------------------------------------------------------------- #
 #  Shared helpers
 # --------------------------------------------------------------------------- #
-def card(margins=(18, 16, 18, 16), spacing=10):
+def card(margins=(18, 16, 18, 16), spacing=10, accent=None):
+    """A standard card panel. Pass accent=T.ACCENT (or another colour) to add
+    a 2px top border — a hierarchy signal for the handful of most-important
+    cards on a page, reusing the same pattern already used by the Overview
+    ledger cards, rather than making every card look identical regardless of
+    importance."""
     fr = QFrame(); fr.setObjectName("Card")
+    top = f"border-top:2px solid {accent};" if accent else f"border-top:1px solid {T.BORDER_SOFT};"
     fr.setStyleSheet(
-        f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT};"
+        f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT}; {top}"
         f"border-radius:{T.RADIUS}px;}}")
     lay = QVBoxLayout(fr); lay.setContentsMargins(*margins); lay.setSpacing(spacing)
     return fr, lay
@@ -324,13 +330,13 @@ class LedgerDetailPage(QWidget):
         data = [(n, B.active_amount(n, y, m)) for n in items]
         data = sorted([t for t in data if t[1] > 0], key=lambda t: t[1], reverse=True)
         dtotal = sum(a for _, a in data) or 1
-        segs = [(a, T.SERIES[i % len(T.SERIES)]) for i, (_, a) in enumerate(data)]
+        segs = [(a, T.category_color(n["name"])) for n, a in data]
         names = [n["name"] for n, _ in data]
         self.donut.set_segments(segs, money(dtotal, cur, signed=False),
                                 "income" if self.income else "spent", names=names)
         clear_layout(self.legend)
         for i, (n, a) in enumerate(data):
-            row = _LegendRow(self.donut, i, T.SERIES[i % len(T.SERIES)],
+            row = _LegendRow(self.donut, i, T.category_color(n["name"]),
                              n["name"], f"{a / dtotal * 100:.0f}%",
                              money(a if self.income else -a, cur))
             self.legend.addWidget(row)
@@ -411,7 +417,7 @@ class _AnalyticsOverview(QWidget):
 
         # Budget vs actual is the core "am I on budget" loop — full width so
         # bars have room to read clearly, rather than sharing a row.
-        bva_card, bvly = card()
+        bva_card, bvly = card(accent=T.ACCENT)
         bva_hdr = QHBoxLayout()
         self._bva_title = label("Budget vs actual — this month", T.TEXT, 12, bold=True)
         bva_hdr.addWidget(self._bva_title); bva_hdr.addStretch(1)
@@ -428,13 +434,7 @@ class _AnalyticsOverview(QWidget):
         bvly.addWidget(self._bva_empty)
         lay.addWidget(bva_card)
 
-        tag_card, tly = card()
-        tly.addWidget(label("Spending by tag — this month", T.TEXT_MUTED, 12))
-        self.tag_box = QVBoxLayout(); self.tag_box.setSpacing(5)
-        tly.addLayout(self.tag_box)
-        lay.addWidget(tag_card)
-
-        stk_card, sly = card()
+        stk_card, sly = card(accent=T.ACCENT)
         sly.addWidget(label("Spending composition — last 6 months", T.TEXT_MUTED, 12))
         srow = QHBoxLayout(); srow.setSpacing(14)
         self.stacked = StackedBarChart()
@@ -450,19 +450,16 @@ class _AnalyticsOverview(QWidget):
         self.stacked_legend.hovered.connect(self.stacked.set_hover_cat)
         lay.addWidget(stk_card)
 
-        flow_card, fcly = card()
-        self._flow_title = label("Cash flow — this month", T.TEXT_MUTED, 12)
-        fcly.addWidget(self._flow_title)
-        self.sankey = SankeyChart()
-        fcly.addWidget(self.sankey)
-        lay.addWidget(flow_card)
+        # Topic shift: from this-month budget tracking to a longer-run
+        # forecast/net-worth view — extra breathing room marks the break.
+        lay.addSpacing(T.GAP_SECTION - T.GAP)
 
         # Forecast + net worth: same chart family, same minimum height —
         # a near-term liquid-balance view and a long-run net-worth view
         # read naturally as a pair rather than stacked one after the other.
         row_forecast = QHBoxLayout(); row_forecast.setSpacing(T.GAP)
 
-        fan_card, fanly = card()
+        fan_card, fanly = card(accent=T.ACCENT)
         fanly.addWidget(label("Liquid-balance forecast — next 6 months",
                               T.TEXT_MUTED, 12))
         self.fan = FanChart()
@@ -470,7 +467,7 @@ class _AnalyticsOverview(QWidget):
         fanly.addWidget(self.fan)
         row_forecast.addWidget(fan_card, 1)
 
-        nw_card, nwly = card()
+        nw_card, nwly = card(accent=T.ACCENT)
         self._nw_title = label("Net worth — history", T.TEXT_MUTED, 12)
         nwly.addWidget(self._nw_title)
         self.area = AreaChart()
@@ -480,11 +477,6 @@ class _AnalyticsOverview(QWidget):
 
         lay.addLayout(row_forecast)
 
-        # P&L trend next to its own two inputs (income, expenses): the
-        # comparison is the point, so put them side by side instead of
-        # making the reader scroll from one to the other.
-        row_trend = QHBoxLayout(); row_trend.setSpacing(T.GAP)
-
         self._trend_label = label("P&L vs target — last 5 months  ·  click a point to filter breakdown",
                                   T.TEXT_MUTED, 12)
         trend, tlay = card()
@@ -492,16 +484,11 @@ class _AnalyticsOverview(QWidget):
         self.trend = LineChart(); self.trend.setMinimumHeight(210)
         self.trend.clicked_idx.connect(self._on_trend_click)
         tlay.addWidget(self.trend)
-        row_trend.addWidget(trend, 1)
+        lay.addWidget(trend)
 
-        inc_exp_card, iely = card()
-        iely.addWidget(label("Income vs Expenses — all months", T.TEXT_MUTED, 12))
-        self.inc_exp_chart = LineChart()
-        self.inc_exp_chart.setMinimumHeight(180)
-        iely.addWidget(self.inc_exp_chart)
-        row_trend.addWidget(inc_exp_card, 1)
-
-        lay.addLayout(row_trend)
+        # Topic shift: from trend/history into forward-looking + reconcile
+        # analysis.
+        lay.addSpacing(T.GAP_SECTION - T.GAP)
 
         # Predicted income (a forward look) next to plan-vs-actual (a
         # backward check) — paired rather than stacked.
@@ -529,7 +516,9 @@ class _AnalyticsOverview(QWidget):
 
         lay.addLayout(row_pred)
 
-        cols = QHBoxLayout(); cols.setSpacing(T.GAP)
+        # Topic shift: into drill-down detail (this section always reflects
+        # whichever month was last clicked in the trend chart / table above).
+        lay.addSpacing(T.GAP_SECTION - T.GAP)
 
         self.donut_card, dlay = card()
         self.donut_title = label("", T.TEXT_MUTED, 12)
@@ -542,16 +531,7 @@ class _AnalyticsOverview(QWidget):
         leg_host.addLayout(self.legend); leg_host.addStretch(1)
         drow.addLayout(leg_host, 1)
         dlay.addLayout(drow)
-        cols.addWidget(self.donut_card, 1)
-
-        self.inc_card, ilay = card()
-        self.inc_title = label("", T.TEXT_MUTED, 12)
-        ilay.addWidget(self.inc_title)
-        self.inc_box = QVBoxLayout(); self.inc_box.setSpacing(12)
-        ilay.addLayout(self.inc_box); ilay.addStretch(1)
-        cols.addWidget(self.inc_card, 1)
-
-        lay.addLayout(cols)
+        lay.addWidget(self.donut_card)
 
         lay.addStretch(1)
         outer.addWidget(scrollable(content))
@@ -606,19 +586,13 @@ class _AnalyticsOverview(QWidget):
 
         # spending composition — stacked bars + synced legend
         cs = B.category_series(self.dm.items(), year, month, count=6)
-        colors = [T.SERIES[i % len(T.SERIES)]
-                  for i in range(len(cs["categories"]))]
+        colors = [T.category_color(name) for name in cs["categories"]]
         self.stacked.set_data(cs["labels"], cs["categories"], cs["matrix"],
                               colors, cur)
         self.stacked_legend.set_rows(
             [(colors[i], name,
               money(sum(row[i] for row in cs["matrix"]), cur, signed=False))
              for i, name in enumerate(cs["categories"])])
-
-        # cash-flow sankey — this month
-        self._flow_title.setText(f"Cash flow — {mn_name}")
-        flow = B.cashflow_links(self.dm.items(), year, month)
-        self.sankey.set_data(flow["income"], flow["outflows"], cur)
 
         # liquid-balance forecast band
         accounts = self.dm.accounts()
@@ -674,16 +648,6 @@ class _AnalyticsOverview(QWidget):
                               target=doc.get("target_pnl"), fill=True, currency=cur)
         self.trend.set_selected(4)   # highlight current month
 
-        # income vs expenses dual-line chart (use secondary series)
-        all_months = self.dm.list_months()
-        inc_series = [(f"{dm.MONTH_ABBR[m]}\n{y}", B.income_total(self.dm.load_month(y, m)))
-                      for y, m in all_months]
-        exp_series = [(f"{dm.MONTH_ABBR[m]}\n{y}", B.expense_total(self.dm.load_month(y, m)))
-                      for y, m in all_months]
-        self.inc_exp_chart.set_series(inc_series, fill=False, currency=cur,
-                                       color=T.GREEN, highlight_last=True)
-        self.inc_exp_chart.set_secondary_series(exp_series, color=T.RED)
-
         # predicted income — next 6 months (the store projects recurrence forward)
         pred_series = []
         for i in range(1, 7):
@@ -709,33 +673,16 @@ class _AnalyticsOverview(QWidget):
                 r.addWidget(label(money(amt, cur, signed=False), T.GREEN, 11, bold=True))
                 self.pred_breakdown_box.addLayout(r)
 
-        # spending by tag (this month)
-        clear_layout(self.tag_box)
-        import calendar as _cal
-        last = _cal.monthrange(year, month)[1]
-        tags = B.spend_by_tag(self.dm.items(), date(year, month, 1),
-                              date(year, month, last))
-        if not tags:
-            self.tag_box.addWidget(label("No expenses tagged yet — add tags on the "
-                                         "Overview (hover a row, click #).", T.TEXT_DIM, 11))
-        else:
-            tmax = max(a for _, a in tags) or 1.0
-            for tname, amt in tags:
-                r = QHBoxLayout(); r.setSpacing(8)
-                r.addWidget(label(tname, T.TEXT_MUTED, 11))
-                bar = ProgressBar(amt / tmax, T.ACCENT, 6); bar.setFixedWidth(120)
-                r.addWidget(bar)
-                r.addStretch(1)
-                r.addWidget(label(money(amt, cur, signed=False), T.RED, 11, bold=True))
-                self.tag_box.addLayout(r)
-
         # plan vs actual (reconcile imported transactions against the plan)
         clear_layout(self.rec_box)
         rep = B.budget_report(self.dm.items(), self.dm.transactions(), year, month)
         if not rep["has_txn"]:
-            self.rec_box.addWidget(label(
-                "Import a bank file (Settings → Connect bank accounts) to reconcile "
-                "your plan against actual spend.", T.TEXT_DIM, 11))
+            empty = label(
+                "No transactions imported yet — go to Settings → Connect bank "
+                "accounts to import a bank file, then this reconciles your plan "
+                "against actual spend.", T.TEXT_DIM, 11)
+            empty.setWordWrap(True)
+            self.rec_box.addWidget(empty)
         else:
             for r in rep["rows"]:
                 diff = r["planned"] - r["actual"]      # +ve = under plan
@@ -815,36 +762,22 @@ class _AnalyticsOverview(QWidget):
         exp = [(n, B.active_amount(n, year, month)) for n in doc.get("expenses", [])]
         exp = sorted([t for t in exp if t[1] > 0], key=lambda t: t[1], reverse=True)
         total = sum(a for _, a in exp) or 1
-        segs = [(a, T.SERIES[i % len(T.SERIES)]) for i, (_, a) in enumerate(exp)]
+        segs = [(a, T.category_color(n["name"])) for n, a in exp]
         names = [n["name"] for n, _ in exp]
         self.donut.set_segments(segs, money(total, cur, signed=False), "spent", names=names)
         clear_layout(self.legend)
         for i, (n, a) in enumerate(exp):
-            row = _LegendRow(self.donut, i, T.SERIES[i % len(T.SERIES)],
+            row = _LegendRow(self.donut, i, T.category_color(n["name"]),
                              n["name"], f"{a / total * 100:.0f}%",
                              money(-a, cur))
             self.legend.addWidget(row)
-
-        self.inc_title.setText(f"Income sources — {mn}")
-        clear_layout(self.inc_box)
-        inc = [(n, B.active_amount(n, year, month)) for n in doc.get("income", [])]
-        inc = sorted([t for t in inc if t[1] > 0], key=lambda t: t[1], reverse=True)
-        mx = max((a for _, a in inc), default=1) or 1
-        for n, a in inc:
-            box = QVBoxLayout(); box.setSpacing(5)
-            head = QHBoxLayout()
-            head.addWidget(label(n["name"], T.TEXT, 12)); head.addStretch(1)
-            head.addWidget(label(money(a, cur), T.GREEN, 12, bold=True))
-            box.addLayout(head)
-            box.addWidget(ProgressBar(a / mx, T.GREEN))
-            self.inc_box.addLayout(box)
 
         # navigation link
         if not hasattr(self, '_nav_link'):
             self._nav_link = Clickable("", T.TEXT_DIM, 11, hover=T.ACCENT)
             self._nav_link.clicked.connect(
                 lambda _=False: self.navigate_to.emit(self._sel_year, self._sel_month))
-            self.inc_card.layout().addWidget(self._nav_link)
+            self.donut_card.layout().addWidget(self._nav_link)
         self._nav_link.setText(f"→ View {dm.MONTH_ABBR[month]} {year} in Overview")
 
 
@@ -1252,128 +1185,6 @@ class GoalsPage(QWidget):
         self.on_change()
         self.set_context(self.dm.load_month(self.year, self.month),
                          self.year, self.month)
-
-
-# --------------------------------------------------------------------------- #
-#  Tracker — cost-per-use for things bought once and used repeatedly
-#  (skincare, vitamins, …). App-wide, not month-dependent.
-# --------------------------------------------------------------------------- #
-class TrackerPage(QWidget):
-    _COLS = [("Item", 170), ("Qty", 70), ("Per use", 70), ("Cost", 80),
-             ("Uses/day", 70), ("/use", 75), ("/day", 75), ("/year", 90)]
-
-    def __init__(self, manager):
-        super().__init__()
-        self.dm = manager
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        content = QWidget()
-        lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(20)
-
-        trow, self.tiles = tile_row(["Items tracked", "Total / day", "Total / year"])
-        lay.addLayout(trow)
-
-        tcard, tlay = card()
-        hdr = QHBoxLayout()
-        hdr.addWidget(label("Cost-per-use tracker", T.TEXT, 13, bold=True))
-        hdr.addStretch(1)
-        add = Clickable("+ Add item", T.TEXT_MUTED, 12, hover=T.ACCENT)
-        add.clicked.connect(self._add_item)
-        hdr.addWidget(add)
-        tlay.addLayout(hdr)
-        tlay.addWidget(label(
-            "Track the true daily/yearly cost of things you buy once and use "
-            "many times — skincare, vitamins, anything with a per-use cost.",
-            T.TEXT_MUTED, 11))
-        tlay.addSpacing(4)
-
-        col_hdr = QHBoxLayout(); col_hdr.setSpacing(0)
-        for cap, w in self._COLS:
-            l = label(cap, T.TEXT_DIM, 10, bold=True); l.setFixedWidth(w)
-            col_hdr.addWidget(l)
-        col_hdr.addStretch(1)
-        tlay.addLayout(col_hdr)
-        tlay.addWidget(hsep())
-
-        self.rows_box = QVBoxLayout(); self.rows_box.setSpacing(3)
-        tlay.addLayout(self.rows_box)
-        lay.addWidget(tcard)
-        lay.addStretch(1)
-        outer.addWidget(scrollable(content))
-
-        self._refresh()
-
-    def _cur(self):
-        return self.dm.settings().get("currency", "$")
-
-    def _refresh(self):
-        clear_layout(self.rows_box)
-        items = self.dm.load_tracker().get("items", [])
-        cur = self._cur()
-        total_day = total_year = 0.0
-        if not items:
-            self.rows_box.addWidget(label(
-                "No items yet — add a skincare product or vitamin to see its "
-                "real cost per use.", T.TEXT_DIM, 11))
-        for it in items:
-            cpu = B.tracker_cost_per_use(it)
-            cpd = B.tracker_cost_per_day(it)
-            cpy = B.tracker_cost_per_year(it)
-            total_day += cpd; total_year += cpy
-            self.rows_box.addWidget(self._item_row(it, cur, cpu, cpd, cpy))
-        self.tiles[0].set_value(str(len(items)), T.TEXT)
-        self.tiles[1].set_value(money(total_day, cur, signed=False), T.ACCENT)
-        self.tiles[2].set_value(money(total_year, cur, signed=False), T.ACCENT)
-
-    def _item_row(self, it, cur, cpu, cpd, cpy):
-        row = QWidget()
-        h = QHBoxLayout(row); h.setContentsMargins(0, 3, 0, 3); h.setSpacing(0)
-        unit = it.get("unit", "")
-        qty = f"{it.get('quantity', 0):g}" + (f" {unit}" if unit else "")
-        vals = [
-            (it.get("name", ""), T.TEXT),
-            (qty, T.TEXT_DIM),
-            (f"{it.get('per_use_amount', 0):g}", T.TEXT_DIM),
-            (money(it.get("item_cost", 0), cur, signed=False), T.TEXT_DIM),
-            (f"{it.get('uses_per_day', 1):g}", T.TEXT_DIM),
-            (money(cpu, cur, signed=False), T.TEXT),
-            (money(cpd, cur, signed=False), T.TEXT),
-            (money(cpy, cur, signed=False), T.ACCENT),
-        ]
-        for (text, col), (_, w) in zip(vals, self._COLS):
-            l = label(text, col, 12); l.setFixedWidth(w)
-            h.addWidget(l)
-        h.addStretch(1)
-        ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
-        ed.setToolTip("Edit item")
-        ed.clicked.connect(lambda _=False, item=it: self._edit_item(item))
-        rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
-        rm.setToolTip("Remove item")
-        rm.clicked.connect(lambda _=False, item=it: self._remove_item(item))
-        h.addWidget(ed); h.addSpacing(6); h.addWidget(rm)
-        return row
-
-    def _add_item(self):
-        res = TrackerItemDialog.create(self, self._cur())
-        if res:
-            self.dm.add_tracked_item(**res)
-            self._refresh()
-
-    def _edit_item(self, it):
-        res = TrackerItemDialog.edit(self, it, self._cur())
-        if res:
-            self.dm.update_tracked_item(it["id"], **res)
-            self._refresh()
-
-    def _remove_item(self, it):
-        from PyQt6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self, "Remove", f"Remove \"{it.get('name', '')}\"?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            self.dm.remove_tracked_item(it["id"])
-            self._refresh()
 
 
 # --------------------------------------------------------------------------- #
@@ -2337,7 +2148,7 @@ class SubscriptionsPage(QWidget):
         tabhost.setStyleSheet(
             f"background:{T.BG_CARD}; border-bottom:1px solid {T.BORDER_SOFT};")
         tl = QHBoxLayout(tabhost); tl.setContentsMargins(20, 0, 20, 0)
-        self.tabbar = SegTabBar(["Subscriptions", "People"], 0, kind="tab")
+        self.tabbar = SegTabBar(["Subscriptions", "People", "Consumables"], 0, kind="tab")
         self.tabbar.changed.connect(self._switch)
         tl.addWidget(self.tabbar); tl.addStretch(1)
         self.add_btn = _button("+ Add subscription", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
@@ -2373,8 +2184,9 @@ class SubscriptionsPage(QWidget):
 
     def _rebuild(self):
         clear_layout(self.blay)
-        (self._build_subscriptions if self.view == "Subscriptions"
-         else self._build_people)()
+        {"Subscriptions": self._build_subscriptions,
+         "People": self._build_people,
+         "Consumables": self._build_consumables}[self.view]()
         self.blay.addStretch(1)
 
     # -- subscriptions list ----------------------------------------------- #
@@ -2869,6 +2681,111 @@ class SubscriptionsPage(QWidget):
                 cl.addLayout(r)
             self.blay.addWidget(c)
 
+    # -- consumables: cost-per-use for things bought once, used repeatedly - #
+    _CONSUMABLE_COLS = [("Item", 170), ("Qty", 70), ("Per use", 70), ("Cost", 80),
+                        ("Uses/day", 70), ("/use", 75), ("/day", 75), ("/year", 90)]
+
+    def _build_consumables(self):
+        cur = self.currency
+        items = self.dm.load_tracker().get("items", [])
+        total_day = total_year = 0.0
+
+        cc, ccl = card()
+        hdr = QHBoxLayout()
+        hdr.addWidget(label("Consumables", T.TEXT, 13, bold=True))
+        hdr.addStretch(1)
+        add = Clickable("+ Add item", T.TEXT_MUTED, 12, hover=T.ACCENT)
+        add.clicked.connect(self._add_consumable)
+        hdr.addWidget(add)
+        ccl.addLayout(hdr)
+        ccl.addWidget(label(
+            "Track the true daily/yearly cost of things you buy once and use "
+            "many times — skincare, vitamins, anything with a per-use cost.",
+            T.TEXT_MUTED, 11))
+        self.blay.addWidget(cc)
+
+        if not items:
+            empty = label(
+                "No items yet — click “+ Add item” to enter a skincare product "
+                "or vitamin, then this shows its real cost per use.",
+                T.TEXT_DIM, 11)
+            empty.setWordWrap(True)
+            self.blay.addWidget(empty)
+            return
+
+        for it in items:
+            total_day += B.tracker_cost_per_day(it)
+            total_year += B.tracker_cost_per_year(it)
+        trow, tiles = tile_row(["Items tracked", "Total / day", "Total / year"])
+        tiles[0].set_value(str(len(items)))
+        tiles[1].set_value(money(total_day, cur, signed=False), T.ACCENT)
+        tiles[2].set_value(money(total_year, cur, signed=False), T.ACCENT)
+        self.blay.addLayout(trow)
+
+        lc, lcl = card()
+        col_hdr = QHBoxLayout(); col_hdr.setSpacing(0)
+        for cap, w in self._CONSUMABLE_COLS:
+            l = label(cap, T.TEXT_DIM, 10, bold=True); l.setFixedWidth(w)
+            col_hdr.addWidget(l)
+        col_hdr.addStretch(1)
+        lcl.addLayout(col_hdr)
+        lcl.addWidget(hsep())
+        for it in items:
+            cpu = B.tracker_cost_per_use(it)
+            cpd = B.tracker_cost_per_day(it)
+            cpy = B.tracker_cost_per_year(it)
+            lcl.addWidget(self._consumable_row(it, cur, cpu, cpd, cpy))
+        self.blay.addWidget(lc)
+
+    def _consumable_row(self, it, cur, cpu, cpd, cpy):
+        row = QWidget()
+        h = QHBoxLayout(row); h.setContentsMargins(0, 3, 0, 3); h.setSpacing(0)
+        unit = it.get("unit", "")
+        qty = f"{it.get('quantity', 0):g}" + (f" {unit}" if unit else "")
+        vals = [
+            (it.get("name", ""), T.TEXT),
+            (qty, T.TEXT_DIM),
+            (f"{it.get('per_use_amount', 0):g}", T.TEXT_DIM),
+            (money(it.get("item_cost", 0), cur, signed=False), T.TEXT_DIM),
+            (f"{it.get('uses_per_day', 1):g}", T.TEXT_DIM),
+            (money(cpu, cur, signed=False), T.TEXT),
+            (money(cpd, cur, signed=False), T.TEXT),
+            (money(cpy, cur, signed=False), T.ACCENT),
+        ]
+        for (text, col), (_, w) in zip(vals, self._CONSUMABLE_COLS):
+            l = label(text, col, 12); l.setFixedWidth(w)
+            h.addWidget(l)
+        h.addStretch(1)
+        ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
+        ed.setToolTip("Edit item")
+        ed.clicked.connect(lambda _=False, item=it: self._edit_consumable(item))
+        rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
+        rm.setToolTip("Remove item")
+        rm.clicked.connect(lambda _=False, item=it: self._remove_consumable(item))
+        h.addWidget(ed); h.addSpacing(6); h.addWidget(rm)
+        return row
+
+    def _add_consumable(self):
+        res = TrackerItemDialog.create(self, self.currency)
+        if res:
+            self.dm.add_tracked_item(**res)
+            self._rebuild()
+
+    def _edit_consumable(self, it):
+        res = TrackerItemDialog.edit(self, it, self.currency)
+        if res:
+            self.dm.update_tracked_item(it["id"], **res)
+            self._rebuild()
+
+    def _remove_consumable(self, it):
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Remove", f"Remove \"{it.get('name', '')}\"?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.dm.remove_tracked_item(it["id"])
+            self._rebuild()
 
 
 # --------------------------------------------------------------------------- #
@@ -2876,7 +2793,7 @@ class SubscriptionsPage(QWidget):
 # --------------------------------------------------------------------------- #
 TITLES = {"overview": "Overview", "income": "Income", "expenses": "Expenses",
           "analytics": "Analytics", "subscriptions": "Subscriptions",
-          "goals": "Goals", "tracker": "Tracker", "history": "History",
+          "goals": "Goals", "history": "History",
           "settings": "Settings"}
 
 
@@ -2928,7 +2845,6 @@ class MainWindow(QMainWindow):
         self.analytics = AnalyticsPage(self.dm, self.doc, self.year, self.month, ch)
         self.subs      = SubscriptionsPage(self.dm, self.doc, self.year, self.month, ch)
         self.goals     = GoalsPage(self.dm, self.doc, self.year, self.month, ch)
-        self.tracker   = TrackerPage(self.dm)
         self.history   = HistoryPage(self.dm, self.goto_month)
         self.settings  = SettingsPage(self.dm, ch)
 
@@ -2936,7 +2852,6 @@ class MainWindow(QMainWindow):
                       "analytics":     self.analytics,
                       "subscriptions": self.subs,
                       "goals":         self.goals,
-                      "tracker":       self.tracker,
                       "history":       self.history,
                       "settings":      self.settings}
         for p in self.pages.values():
@@ -3013,7 +2928,6 @@ class MainWindow(QMainWindow):
         "analytics":     (False, True),
         "subscriptions": (False, True),
         "goals":         (False, True),
-        "tracker":       (False, False),
         "history":       (False, False),
         "settings":      (False, False),
     }
@@ -3172,19 +3086,19 @@ def _register_fonts():
     from PyQt6.QtGui import QFontDatabase
     fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     fonts = (
-        # Arial Nova (Windows 11) — the configured family, plus light/regular weights
-        "arialnova.ttf", "arialnovalight.ttf", "arialnova_light.ttf",
-        "ARIALNOVALT.TTF", "ARIALNOVA.TTF",
-        # fallbacks so the UI still renders if Arial Nova isn't installed
-        "segoeui.ttf", "segoeuib.ttf", "segoeuisb.ttf", "seguisym.ttf",
+        # Segoe UI (Windows) — the configured family, regular/bold/light/semibold
+        "segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf",
+        "segoeuil.ttf", "seguisb.ttf",
+        # fallback so the UI still renders if Segoe UI isn't installed
+        "arial.ttf", "arialbd.ttf",
     )
     for fname in fonts:
         path = os.path.join(fdir, fname)
         if os.path.exists(path):
             QFontDatabase.addApplicationFont(path)
-    # graceful fallback for QFont(...) constructions when Arial Nova isn't installed
-    QFont.insertSubstitutions(T.FONT_FAMILY, ["Arial", "Segoe UI"])
-    QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT, [T.FONT_FAMILY, "Arial", "Segoe UI"])
+    # graceful fallback for QFont(...) constructions when Segoe UI isn't installed
+    QFont.insertSubstitutions(T.FONT_FAMILY, ["Arial", "sans-serif"])
+    QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT, [T.FONT_FAMILY, "Arial", "sans-serif"])
 
 
 def main():
