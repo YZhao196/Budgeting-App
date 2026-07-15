@@ -327,6 +327,7 @@ class Sidebar(QWidget):
              ("analytics",     "analytics", "Analytics"),
              ("subscriptions", "subs",      "Subs"),
              ("goals",         "goals",     "Goals"),
+             ("tracker",       "tracker",   "Tracker"),
              ("history",       "history",   "History")]
 
     def __init__(self):
@@ -365,7 +366,7 @@ class Sidebar(QWidget):
     # Overview and Settings can't be hidden (you need a home and a way back).
     ALWAYS = {"overview", "settings"}
     HIDEABLE = [("analytics", "Analytics"), ("subscriptions", "Subscriptions"),
-                ("goals", "Goals"), ("history", "History")]
+                ("goals", "Goals"), ("tracker", "Tracker"), ("history", "History")]
 
     def apply_hidden(self, hidden):
         hidden = set(hidden or [])
@@ -2331,6 +2332,123 @@ class AccountDialog(QDialog):
         return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
 
 
+class TrackerItemDialog(QDialog):
+    """Create / edit a cost-per-use tracked item (skincare, vitamins, anything
+    bought once and used repeatedly). Same static create()/edit() shape as
+    AccountDialog."""
+
+    def __init__(self, parent, currency="$", item=None):
+        super().__init__(parent)
+        self._editing = item is not None
+        self.setWindowTitle("Edit tracked item" if self._editing else "Add tracked item")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumWidth(360)
+        self._result = None
+        a = item or {}
+        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
+               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
+        lay.addWidget(label("Edit tracked item" if self._editing else "Add tracked item",
+                            T.TEXT, 15, bold=True))
+
+        self.name = QLineEdit(a.get("name", ""))
+        self.name.setPlaceholderText("e.g. Vitamin C serum, Multivitamin")
+        self.name.setStyleSheet(ist)
+        lay.addWidget(label("Name", T.TEXT_MUTED, 10)); lay.addWidget(self.name)
+
+        row1 = QHBoxLayout(); row1.setSpacing(10)
+        qcol = QVBoxLayout()
+        qcol.addWidget(label("Quantity in item", T.TEXT_MUTED, 10))
+        self.quantity = QDoubleSpinBox(); self.quantity.setRange(0.01, 1_000_000)
+        self.quantity.setDecimals(2); self.quantity.setValue(float(a.get("quantity", 30.0)))
+        self.quantity.setStyleSheet(ist)
+        qcol.addWidget(self.quantity)
+        row1.addLayout(qcol)
+
+        ucol = QVBoxLayout()
+        ucol.addWidget(label("Unit (optional)", T.TEXT_MUTED, 10))
+        self.unit = QLineEdit(a.get("unit", ""))
+        self.unit.setPlaceholderText("capsules, mL…")
+        self.unit.setStyleSheet(ist)
+        ucol.addWidget(self.unit)
+        row1.addLayout(ucol)
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout(); row2.setSpacing(10)
+        pcol = QVBoxLayout()
+        pcol.addWidget(label("Amount per use", T.TEXT_MUTED, 10))
+        self.per_use = QDoubleSpinBox(); self.per_use.setRange(0.01, 1_000_000)
+        self.per_use.setDecimals(2); self.per_use.setValue(float(a.get("per_use_amount", 1.0)))
+        self.per_use.setStyleSheet(ist)
+        pcol.addWidget(self.per_use)
+        row2.addLayout(pcol)
+
+        dcol = QVBoxLayout()
+        dcol.addWidget(label("Uses per day", T.TEXT_MUTED, 10))
+        self.uses_day = QDoubleSpinBox(); self.uses_day.setRange(0.0, 50.0)
+        self.uses_day.setDecimals(2); self.uses_day.setValue(float(a.get("uses_per_day", 1.0)))
+        self.uses_day.setStyleSheet(ist)
+        dcol.addWidget(self.uses_day)
+        row2.addLayout(dcol)
+        lay.addLayout(row2)
+
+        lay.addWidget(label("Item cost (total price paid)", T.TEXT_MUTED, 10))
+        self.cost = MoneySpin(); self.cost.setRange(0, 1_000_000)
+        self.cost.setDecimals(2); self.cost.setPrefix(currency)
+        self.cost.setValue(float(a.get("item_cost", 0.0)))
+        self.cost.setStyleSheet(ist)
+        lay.addWidget(self.cost)
+
+        hint = label("Cost per use = item cost ÷ (quantity ÷ amount per use). "
+                     "Cost per day = cost per use × uses per day.",
+                     T.TEXT_DIM, 10)
+        hint.setWordWrap(True); lay.addWidget(hint)
+
+        arow = QHBoxLayout()
+        cancel = QPushButton("Cancel"); save = QPushButton(
+            "Save changes" if self._editing else "Add item")
+        for b, fg, bg, border in ((cancel, T.TEXT_MUTED, T.BG_INPUT, T.BORDER),
+                                  (save, T.GREEN, T.GREEN_BG, T.GREEN_BORDER)):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
+                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"QPushButton:hover{{border-color:{fg};}}")
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        arow.addStretch(1); arow.addWidget(cancel); arow.addWidget(save)
+        lay.addSpacing(4); lay.addLayout(arow)
+        self.name.setFocus()
+
+    def _save(self):
+        nm = self.name.text().strip()
+        if not nm:
+            self.name.setFocus(); return
+        self._result = {
+            "name": nm,
+            "quantity": float(self.quantity.value()),
+            "unit": self.unit.text().strip(),
+            "per_use_amount": float(self.per_use.value()),
+            "uses_per_day": float(self.uses_day.value()),
+            "item_cost": float(self.cost.value()),
+        }
+        self.accept()
+
+    @staticmethod
+    def create(parent, currency="$"):
+        dlg = TrackerItemDialog(parent, currency)
+        place_near_cursor(dlg)
+        return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
+
+    @staticmethod
+    def edit(parent, item, currency="$"):
+        dlg = TrackerItemDialog(parent, currency, item=item)
+        place_near_cursor(dlg)
+        return dlg._result if dlg.exec() == QDialog.DialogCode.Accepted else None
+
+
 class BudgetDialog(QDialog):
     """Set the monthly ideal (budget) for each expense category. Returns
     {category_id: ideal} on save."""
@@ -2824,11 +2942,9 @@ class SharedPlanDialog(QDialog):
 #  Summary card (right-hand top)
 # --------------------------------------------------------------------------- #
 class StatBox(QFrame):
-    def __init__(self, title, amount, fg, bg, border):
+    def __init__(self, title, amount, fg, bg):
         super().__init__()
-        self.setStyleSheet(
-            f"QFrame{{background:{bg}; border:1px solid {border};"
-            f"border-radius:0px;}}")
+        self.setStyleSheet(f"QFrame{{background:{bg}; border:none;}}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 9, 12, 9); lay.setSpacing(2)
         lay.addWidget(label(title, fg, 11, bold=True))
@@ -2894,8 +3010,8 @@ class SummaryCard(QFrame):
         root.addSpacing(10)
 
         boxes = QHBoxLayout(); boxes.setSpacing(10)
-        self.box_in = StatBox("Incoming", "", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
-        self.box_out = StatBox("Outgoing", "", T.RED, T.RED_BG, T.RED_BORDER)
+        self.box_in = StatBox("Incoming", "", T.GREEN, T.GREEN_BG)
+        self.box_out = StatBox("Outgoing", "", T.RED, T.RED_BG)
         boxes.addWidget(self.box_in); boxes.addWidget(self.box_out)
         root.addLayout(boxes)
 

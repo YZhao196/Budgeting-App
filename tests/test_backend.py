@@ -895,6 +895,45 @@ def test_goal_eta_rounds_up_partial_month():
     assert r["months"] == 2
 
 
+def test_tracker_cost_per_use_and_day():
+    # $30 bottle, 30mL, 5mL/use -> 6 uses -> $5/use; used 2x/day -> $10/day
+    t = {"quantity": 30, "per_use_amount": 5, "item_cost": 30, "uses_per_day": 2}
+    assert B.tracker_uses_per_item(t) == 6
+    assert B.tracker_cost_per_use(t) == 5.0
+    assert B.tracker_cost_per_day(t) == 10.0
+    assert B.tracker_cost_per_year(t) == 3650.0
+
+
+def test_tracker_defaults_to_zero_when_amounts_missing():
+    assert B.tracker_uses_per_item({}) == 0.0
+    assert B.tracker_cost_per_use({}) == 0.0
+    assert B.tracker_cost_per_day({"item_cost": 10}) == 0.0
+
+
+def test_tracker_zero_per_use_amount_does_not_divide_by_zero():
+    t = {"quantity": 30, "per_use_amount": 0, "item_cost": 30, "uses_per_day": 1}
+    assert B.tracker_uses_per_item(t) == 0.0
+    assert B.tracker_cost_per_use(t) == 0.0
+    assert B.tracker_cost_per_day(t) == 0.0
+
+
+def test_tracker_item_store_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(dm, "TRACKER_FILE", str(tmp_path / "tracker.json"))
+    store = dm.ItemStore()
+
+    added = store.add_tracked_item("Vitamin C serum", 30, 5, 24.0, uses_per_day=1)
+    items = store.load_tracker()["items"]
+    assert len(items) == 1 and items[0]["name"] == "Vitamin C serum"
+    assert B.tracker_cost_per_use(added) == 4.0
+
+    store.update_tracked_item(added["id"], item_cost=30.0)
+    updated = store.load_tracker()["items"][0]
+    assert updated["item_cost"] == 30.0
+
+    store.remove_tracked_item(added["id"])
+    assert store.load_tracker()["items"] == []
+
+
 # need pytest.approx for float comparisons
 try:
     import pytest

@@ -34,8 +34,8 @@ from widgets import (
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
     ProgressBar, SankeyChart, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
-    SubscriptionTimeline, SummaryCard, TopBar, WhoOwesBar, clear_layout, flash_widget, hsep,
-    label, money, repeat_label, retain_size, tag_chip,
+    SubscriptionTimeline, SummaryCard, TopBar, TrackerItemDialog, WhoOwesBar, clear_layout,
+    flash_widget, hsep, label, money, repeat_label, retain_size, tag_chip,
 )
 
 
@@ -409,11 +409,8 @@ class _AnalyticsOverview(QWidget):
         clay.addLayout(self._cmp_box)
         lay.addWidget(cmp_card)
 
-        # Budget vs actual + spending by tag: both narrow, both answer
-        # "on budget this month?" — share a row instead of each claiming
-        # the full page width.
-        row_budget = QHBoxLayout(); row_budget.setSpacing(T.GAP)
-
+        # Budget vs actual is the core "am I on budget" loop — full width so
+        # bars have room to read clearly, rather than sharing a row.
         bva_card, bvly = card()
         bva_hdr = QHBoxLayout()
         self._bva_title = label("Budget vs actual — this month", T.TEXT, 12, bold=True)
@@ -429,24 +426,19 @@ class _AnalyticsOverview(QWidget):
             "ideal per category, then this tracks actual vs. budget.", T.TEXT_DIM, 11)
         self._bva_empty.setWordWrap(True); self._bva_empty.setVisible(False)
         bvly.addWidget(self._bva_empty)
-        row_budget.addWidget(bva_card, 1)
+        lay.addWidget(bva_card)
 
         tag_card, tly = card()
         tly.addWidget(label("Spending by tag — this month", T.TEXT_MUTED, 12))
         self.tag_box = QVBoxLayout(); self.tag_box.setSpacing(5)
         tly.addLayout(self.tag_box)
-        tly.addStretch(1)   # paired with the taller budget-vs-actual card;
-                            # push any extra height below the content, not
-                            # between the title and the first row
-        row_budget.addWidget(tag_card, 1)
-
-        lay.addLayout(row_budget)
+        lay.addWidget(tag_card)
 
         stk_card, sly = card()
         sly.addWidget(label("Spending composition — last 6 months", T.TEXT_MUTED, 12))
         srow = QHBoxLayout(); srow.setSpacing(14)
         self.stacked = StackedBarChart()
-        self.stacked.setMinimumHeight(230)
+        self.stacked.setMinimumHeight(260)
         srow.addWidget(self.stacked, 1)
         self.stacked_legend = ChartLegend()
         leg_host = QVBoxLayout(); leg_host.addStretch(1)
@@ -474,6 +466,7 @@ class _AnalyticsOverview(QWidget):
         fanly.addWidget(label("Liquid-balance forecast — next 6 months",
                               T.TEXT_MUTED, 12))
         self.fan = FanChart()
+        self.fan.setMinimumHeight(240)
         fanly.addWidget(self.fan)
         row_forecast.addWidget(fan_card, 1)
 
@@ -481,6 +474,7 @@ class _AnalyticsOverview(QWidget):
         self._nw_title = label("Net worth — history", T.TEXT_MUTED, 12)
         nwly.addWidget(self._nw_title)
         self.area = AreaChart()
+        self.area.setMinimumHeight(240)
         nwly.addWidget(self.area)
         row_forecast.addWidget(nw_card, 1)
 
@@ -1258,6 +1252,128 @@ class GoalsPage(QWidget):
         self.on_change()
         self.set_context(self.dm.load_month(self.year, self.month),
                          self.year, self.month)
+
+
+# --------------------------------------------------------------------------- #
+#  Tracker — cost-per-use for things bought once and used repeatedly
+#  (skincare, vitamins, …). App-wide, not month-dependent.
+# --------------------------------------------------------------------------- #
+class TrackerPage(QWidget):
+    _COLS = [("Item", 170), ("Qty", 70), ("Per use", 70), ("Cost", 80),
+             ("Uses/day", 70), ("/use", 75), ("/day", 75), ("/year", 90)]
+
+    def __init__(self, manager):
+        super().__init__()
+        self.dm = manager
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(20)
+
+        trow, self.tiles = tile_row(["Items tracked", "Total / day", "Total / year"])
+        lay.addLayout(trow)
+
+        tcard, tlay = card()
+        hdr = QHBoxLayout()
+        hdr.addWidget(label("Cost-per-use tracker", T.TEXT, 13, bold=True))
+        hdr.addStretch(1)
+        add = Clickable("+ Add item", T.TEXT_MUTED, 12, hover=T.ACCENT)
+        add.clicked.connect(self._add_item)
+        hdr.addWidget(add)
+        tlay.addLayout(hdr)
+        tlay.addWidget(label(
+            "Track the true daily/yearly cost of things you buy once and use "
+            "many times — skincare, vitamins, anything with a per-use cost.",
+            T.TEXT_MUTED, 11))
+        tlay.addSpacing(4)
+
+        col_hdr = QHBoxLayout(); col_hdr.setSpacing(0)
+        for cap, w in self._COLS:
+            l = label(cap, T.TEXT_DIM, 10, bold=True); l.setFixedWidth(w)
+            col_hdr.addWidget(l)
+        col_hdr.addStretch(1)
+        tlay.addLayout(col_hdr)
+        tlay.addWidget(hsep())
+
+        self.rows_box = QVBoxLayout(); self.rows_box.setSpacing(3)
+        tlay.addLayout(self.rows_box)
+        lay.addWidget(tcard)
+        lay.addStretch(1)
+        outer.addWidget(scrollable(content))
+
+        self._refresh()
+
+    def _cur(self):
+        return self.dm.settings().get("currency", "$")
+
+    def _refresh(self):
+        clear_layout(self.rows_box)
+        items = self.dm.load_tracker().get("items", [])
+        cur = self._cur()
+        total_day = total_year = 0.0
+        if not items:
+            self.rows_box.addWidget(label(
+                "No items yet — add a skincare product or vitamin to see its "
+                "real cost per use.", T.TEXT_DIM, 11))
+        for it in items:
+            cpu = B.tracker_cost_per_use(it)
+            cpd = B.tracker_cost_per_day(it)
+            cpy = B.tracker_cost_per_year(it)
+            total_day += cpd; total_year += cpy
+            self.rows_box.addWidget(self._item_row(it, cur, cpu, cpd, cpy))
+        self.tiles[0].set_value(str(len(items)), T.TEXT)
+        self.tiles[1].set_value(money(total_day, cur, signed=False), T.ACCENT)
+        self.tiles[2].set_value(money(total_year, cur, signed=False), T.ACCENT)
+
+    def _item_row(self, it, cur, cpu, cpd, cpy):
+        row = QWidget()
+        h = QHBoxLayout(row); h.setContentsMargins(0, 3, 0, 3); h.setSpacing(0)
+        unit = it.get("unit", "")
+        qty = f"{it.get('quantity', 0):g}" + (f" {unit}" if unit else "")
+        vals = [
+            (it.get("name", ""), T.TEXT),
+            (qty, T.TEXT_DIM),
+            (f"{it.get('per_use_amount', 0):g}", T.TEXT_DIM),
+            (money(it.get("item_cost", 0), cur, signed=False), T.TEXT_DIM),
+            (f"{it.get('uses_per_day', 1):g}", T.TEXT_DIM),
+            (money(cpu, cur, signed=False), T.TEXT),
+            (money(cpd, cur, signed=False), T.TEXT),
+            (money(cpy, cur, signed=False), T.ACCENT),
+        ]
+        for (text, col), (_, w) in zip(vals, self._COLS):
+            l = label(text, col, 12); l.setFixedWidth(w)
+            h.addWidget(l)
+        h.addStretch(1)
+        ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
+        ed.setToolTip("Edit item")
+        ed.clicked.connect(lambda _=False, item=it: self._edit_item(item))
+        rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
+        rm.setToolTip("Remove item")
+        rm.clicked.connect(lambda _=False, item=it: self._remove_item(item))
+        h.addWidget(ed); h.addSpacing(6); h.addWidget(rm)
+        return row
+
+    def _add_item(self):
+        res = TrackerItemDialog.create(self, self._cur())
+        if res:
+            self.dm.add_tracked_item(**res)
+            self._refresh()
+
+    def _edit_item(self, it):
+        res = TrackerItemDialog.edit(self, it, self._cur())
+        if res:
+            self.dm.update_tracked_item(it["id"], **res)
+            self._refresh()
+
+    def _remove_item(self, it):
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Remove", f"Remove \"{it.get('name', '')}\"?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.dm.remove_tracked_item(it["id"])
+            self._refresh()
 
 
 # --------------------------------------------------------------------------- #
@@ -2760,7 +2876,7 @@ class SubscriptionsPage(QWidget):
 # --------------------------------------------------------------------------- #
 TITLES = {"overview": "Overview", "income": "Income", "expenses": "Expenses",
           "analytics": "Analytics", "subscriptions": "Subscriptions",
-          "goals": "Goals", "history": "History",
+          "goals": "Goals", "tracker": "Tracker", "history": "History",
           "settings": "Settings"}
 
 
@@ -2812,6 +2928,7 @@ class MainWindow(QMainWindow):
         self.analytics = AnalyticsPage(self.dm, self.doc, self.year, self.month, ch)
         self.subs      = SubscriptionsPage(self.dm, self.doc, self.year, self.month, ch)
         self.goals     = GoalsPage(self.dm, self.doc, self.year, self.month, ch)
+        self.tracker   = TrackerPage(self.dm)
         self.history   = HistoryPage(self.dm, self.goto_month)
         self.settings  = SettingsPage(self.dm, ch)
 
@@ -2819,6 +2936,7 @@ class MainWindow(QMainWindow):
                       "analytics":     self.analytics,
                       "subscriptions": self.subs,
                       "goals":         self.goals,
+                      "tracker":       self.tracker,
                       "history":       self.history,
                       "settings":      self.settings}
         for p in self.pages.values():
@@ -2895,6 +3013,7 @@ class MainWindow(QMainWindow):
         "analytics":     (False, True),
         "subscriptions": (False, True),
         "goals":         (False, True),
+        "tracker":       (False, False),
         "history":       (False, False),
         "settings":      (False, False),
     }

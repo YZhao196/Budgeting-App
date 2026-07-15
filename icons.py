@@ -140,6 +140,11 @@ def draw(p: QPainter, name: str, rect: QRectF, color: str, w: float = 1.6) -> No
             for oy in (-s2 - gap / 2, gap / 2):
                 p.drawRoundedRect(QRectF(cx + ox, cy + oy, s2, s2), rad, rad)
 
+    elif name == "tracker":           # capsule (cost-per-use tracker)
+        w2, h2 = R * 0.82, R * 0.42
+        p.drawRoundedRect(QRectF(cx - w2, cy - h2, 2 * w2, 2 * h2), h2, h2)
+        p.drawLine(QPointF(cx, cy - h2), QPointF(cx, cy + h2))
+
     elif name == "networth":          # stacked coins (assets)
         for i, yy in enumerate((0.46, 0.06, -0.34)):
             p.drawEllipse(QRectF(cx - R * 0.62, cy + yy * R - R * 0.13,

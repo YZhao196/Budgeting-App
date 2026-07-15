@@ -31,6 +31,7 @@ DATA_DIR   = os.path.join(_app_dir(), "data")
 MONTHS_DIR = os.path.join(DATA_DIR, "months")
 GOALS_FILE = os.path.join(DATA_DIR, "goals.json")
 ITEMS_FILE = os.path.join(DATA_DIR, "items.json")   # flat store (3a model)
+TRACKER_FILE = os.path.join(DATA_DIR, "tracker.json")   # cost-per-use tracker
 
 MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June",
                "July", "August", "September", "October", "November", "December"]
@@ -96,6 +97,23 @@ def _seed_goals() -> dict:
         goal("New laptop", 2000, 1250),
         goal("Vacation", 5000, 800),
     ]}
+
+
+def tracker_item(name: str, quantity: float, per_use_amount: float,
+                 item_cost: float, uses_per_day: float = 1.0,
+                 unit: str = "", id=None) -> dict:
+    """One cost-per-use tracked item (skincare, vitamins, anything bought
+    once and used repeatedly). Lives app-wide, not per-month — see
+    backend.tracker_cost_per_use/_day/_year for the derived figures."""
+    return {"id": id or new_id(), "name": name,
+            "quantity": float(quantity), "unit": unit,
+            "per_use_amount": float(per_use_amount),
+            "item_cost": float(item_cost),
+            "uses_per_day": float(uses_per_day)}
+
+
+def _seed_tracker() -> dict:
+    return {"items": []}   # starts empty — this is the user's own product list
 
 
 # --------------------------------------------------------------------------- #
@@ -1176,7 +1194,7 @@ class ItemStore:
 
     def reset_all(self, year: int, month: int) -> None:
         # keep a one-shot backup (<file>.bak) instead of deleting outright
-        for f in (ITEMS_FILE, GOALS_FILE):
+        for f in (ITEMS_FILE, GOALS_FILE, TRACKER_FILE):
             if os.path.exists(f):
                 try:
                     os.replace(f, f + ".bak")
@@ -1197,3 +1215,37 @@ class ItemStore:
     def save_goals(self, data: dict) -> None:
         with open(GOALS_FILE, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
+
+    # -- cost-per-use tracker (app-wide, unchanged store) ------------------ #
+    def load_tracker(self) -> dict:
+        if not os.path.exists(TRACKER_FILE):
+            self.save_tracker(_seed_tracker())
+        with open(TRACKER_FILE, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def save_tracker(self, data: dict) -> None:
+        with open(TRACKER_FILE, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+
+    def add_tracked_item(self, name: str, quantity: float, per_use_amount: float,
+                         item_cost: float, uses_per_day: float = 1.0,
+                         unit: str = "") -> dict:
+        data = self.load_tracker()
+        item = tracker_item(name, quantity, per_use_amount, item_cost,
+                            uses_per_day, unit)
+        data.setdefault("items", []).append(item)
+        self.save_tracker(data)
+        return item
+
+    def update_tracked_item(self, item_id: str, **fields) -> None:
+        data = self.load_tracker()
+        for it in data.get("items", []):
+            if it.get("id") == item_id:
+                it.update(fields)
+                break
+        self.save_tracker(data)
+
+    def remove_tracked_item(self, item_id: str) -> None:
+        data = self.load_tracker()
+        data["items"] = [it for it in data.get("items", []) if it.get("id") != item_id]
+        self.save_tracker(data)

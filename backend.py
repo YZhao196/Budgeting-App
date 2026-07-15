@@ -184,6 +184,35 @@ def goal_eta(saved: float, target: float, monthly_contrib: float,
 
 
 # --------------------------------------------------------------------------- #
+#  Cost-per-use tracker (skincare, vitamins, anything bought once and used
+#  repeatedly) — pure maths over a {quantity, per_use_amount, item_cost,
+#  uses_per_day} record. See datamanagement.tracker_item() for the schema.
+# --------------------------------------------------------------------------- #
+def tracker_uses_per_item(t: dict) -> float:
+    """How many uses one purchased item yields (e.g. a 30mL bottle used
+    5mL/time = 6 uses)."""
+    per_use = float(t.get("per_use_amount") or 0)
+    if per_use <= 0:
+        return 0.0
+    return float(t.get("quantity") or 0) / per_use
+
+
+def tracker_cost_per_use(t: dict) -> float:
+    uses = tracker_uses_per_item(t)
+    if uses <= 0:
+        return 0.0
+    return float(t.get("item_cost") or 0) / uses
+
+
+def tracker_cost_per_day(t: dict) -> float:
+    return tracker_cost_per_use(t) * float(t.get("uses_per_day") or 0)
+
+
+def tracker_cost_per_year(t: dict) -> float:
+    return tracker_cost_per_day(t) * 365
+
+
+# --------------------------------------------------------------------------- #
 #  Due-date priority  ->  coloured dot
 # --------------------------------------------------------------------------- #
 PRIORITY_NONE, PRIORITY_OK, PRIORITY_SOON, PRIORITY_OVERDUE = range(4)
