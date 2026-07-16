@@ -42,7 +42,8 @@ CHEV_W   = 14
 INDENT   = 16
 PAD_L    = 14
 PAD_R    = 10
-ROW_H    = 32
+ROW_H    = 34          # a hair more air per ledger row (was 32) — with the fluid
+                       # font scale this also keeps text off the row edges
 
 # Entry-reveal animations (disabled in headless --shot mode).
 ANIMATE = True
@@ -232,9 +233,12 @@ class _TagChip(QLabel):
     def __init__(self, text, on_click=None):
         super().__init__(text)
         f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(9)); self.setFont(f)
+        # A tag is metadata, not a state: a quiet neutral pill (no border, no
+        # accent), so it doesn't borrow green/accent's "income/on-track" meaning
+        # (critique §3.2). Notion tags are low-saturation, borderless.
         self.setStyleSheet(
-            f"color:{T.ACCENT}; background:{T.BG_INPUT};"
-            f"border:1px solid {T.BORDER}; border-radius:7px; padding:1px 6px;")
+            f"color:{T.TEXT_MUTED}; background:{T.BG_TAG};"
+            f"border:none; border-radius:{T.RADIUS_SM}px; padding:1px 7px;")
         self._cb = on_click
         if on_click:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1289,7 +1293,8 @@ class LedgerCard(QFrame):
                           align=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             due_h.setFixedWidth(W_DUE); head.addWidget(due_h)
             pr_h = label("Pr", T.TEXT_DIM, 9, align=Qt.AlignmentFlag.AlignCenter)
-            pr_h.setFixedWidth(W_PR); head.addWidget(pr_h)
+            pr_h.setToolTip("Priority")   # the column is too narrow for the word;
+            pr_h.setFixedWidth(W_PR); head.addWidget(pr_h)   # tooltip carries it
         added_h = label("Added", T.TEXT_DIM, 9,
                         align=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         added_h.setFixedWidth(W_ADDED); head.addWidget(added_h)
@@ -2002,12 +2007,8 @@ class RepeatDialog(QDialog):
         self.every.setFixedWidth(80)
         self.every.setFixedHeight(32)
         self.every.setValue(int(r["every"]) if r.get("type") == "interval" else 1)
-        self.every.setStyleSheet(f"""
-            QSpinBox {{
-                background:{T.BG_INPUT}; color:{T.TEXT};
-                border:1px solid {T.BORDER_LIGHT}; padding:4px 6px;
-                font-size:13px;
-            }}
+        self.every.setStyleSheet(T.input_style("4px 6px") + f"""
+            QSpinBox {{ font-size:{T.scaled(13)}px; }}
             QSpinBox::up-button, QSpinBox::down-button {{
                 width:18px; border:none; background:{T.BG_CARD_SOFT};
             }}
@@ -2165,9 +2166,7 @@ class TagDialog(QDialog):
 
         irow = QHBoxLayout(); irow.setSpacing(6)
         self._inp = QLineEdit(); self._inp.setPlaceholderText("Add a tag…")
-        self._inp.setStyleSheet(
-            f"QLineEdit{{background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;}}")
+        self._inp.setStyleSheet(T.input_style("5px 7px"))
         self._inp.returnPressed.connect(self._add)
         add = self._btn("Add", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         add.clicked.connect(self._add)
@@ -2286,9 +2285,7 @@ class CommandPalette(QDialog):
         self.box = QLineEdit()
         self.box.setPlaceholderText("Type a command…")
         self.box.setStyleSheet(
-            f"background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; border-radius:{T.RADIUS}px;"
-            f"padding:7px 9px; font-size:{T.FS_BODY}px;")
+            T.input_style("7px 9px") + f"QLineEdit{{font-size:{T.FS_BODY}px;}}")
         self.box.textChanged.connect(self._refresh)
         self.box.returnPressed.connect(self._activate_first)
         lay.addWidget(self.box)
@@ -2370,9 +2367,7 @@ class SearchDialog(QDialog):
         lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(10)
         self.box = QLineEdit()
         self.box.setPlaceholderText("Search items, subscriptions, people, accounts…")
-        self.box.setStyleSheet(
-            f"background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; padding:7px 9px; font-size:14px;")
+        self.box.setStyleSheet(T.input_style("7px 9px") + "QLineEdit{font-size:14px;}")
         self.box.textChanged.connect(self._refresh)
         self.box.returnPressed.connect(self._activate_first)
         lay.addWidget(self.box)
@@ -2429,9 +2424,7 @@ class NoteDialog(QDialog):
         lay.addWidget(label(f"Note — {name}", T.TEXT, 14, bold=True))
         self.edit = QPlainTextEdit(note or "")
         self.edit.setPlaceholderText("Anything worth remembering about this item…")
-        self.edit.setStyleSheet(
-            f"background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+        self.edit.setStyleSheet(T.input_style("6px 8px"))
         self.edit.setMinimumHeight(120)
         lay.addWidget(self.edit)
         arow = QHBoxLayout()
@@ -2533,8 +2526,7 @@ class PersonDialog(QDialog):
         lay.addWidget(label("Edit person" if self._editing else "Add person",
                             T.TEXT, 15, bold=True))
 
-        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+        ist = T.input_style("6px 8px")
         self.name = QLineEdit(p.get("name", ""))
         self.name.setPlaceholderText("Name (required)")
         self.email = QLineEdit(p.get("email", ""))
@@ -2611,8 +2603,7 @@ class AccountDialog(QDialog):
         lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
         lay.addWidget(label("Edit account" if self._editing else "Add account",
                             T.TEXT, 15, bold=True))
-        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+        ist = T.input_style("6px 8px")
 
         self.name = QLineEdit(a.get("name", ""))
         self.name.setPlaceholderText("e.g. ANZ Plus, Shares, Home loan")
@@ -2687,8 +2678,7 @@ class TrackerItemDialog(QDialog):
         self.setMinimumWidth(360)
         self._result = None
         a = item or {}
-        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-               f"border:1px solid {T.BORDER_LIGHT}; padding:6px 8px;")
+        ist = T.input_style("6px 8px")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(9)
@@ -2808,8 +2798,7 @@ class BudgetDialog(QDialog):
         lay.addWidget(label("Set category budgets", T.TEXT, 15, bold=True))
         lay.addWidget(label("The monthly amount each category should stay under. "
                             "Leave 0 to leave a category unbudgeted.", T.TEXT_MUTED, 11))
-        ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-               f"border:1px solid {T.BORDER_LIGHT}; padding:4px 6px;")
+        ist = T.input_style("4px 6px")
 
         box = QVBoxLayout(); box.setContentsMargins(0, 0, 0, 0); box.setSpacing(3)
         inner = QWidget(); inner.setLayout(box)
@@ -3132,8 +3121,7 @@ class SharedPlanDialog(QDialog):
         self._sync()
 
     def _ist(self):
-        return (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-                f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
+        return T.input_style("5px 7px")
 
     def _btn(self, text, fg, bg, border):
         b = QPushButton(text); b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3386,11 +3374,14 @@ class SharedPlanDialog(QDialog):
 #  Summary card (right-hand top)
 # --------------------------------------------------------------------------- #
 class StatBox(QFrame):
-    def __init__(self, title, amount, fg, bg):
+    def __init__(self, title, amount, fg):
         super().__init__()
-        self.setStyleSheet(f"QFrame{{background:{bg}; border:none;}}")
+        # No tinted fill: the coloured number is the mark; a green fill behind a
+        # green number behind a "+" is three greens saying one thing (critique
+        # §3.1). Space separates the two boxes, not a surface.
+        self.setStyleSheet("QFrame{background:transparent; border:none;}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 9, 12, 9); lay.setSpacing(2)
+        lay.setContentsMargins(0, 4, 0, 4); lay.setSpacing(2)
         lay.addWidget(label(title, fg, 11, bold=True))
         self.amt = label(amount, fg, 16, bold=True)
         lay.addWidget(self.amt)
@@ -3454,10 +3445,11 @@ class SummaryCard(QFrame):
         root.addWidget(self._bills_lbl)
         root.addSpacing(10)
 
-        boxes = QHBoxLayout(); boxes.setSpacing(10)
-        self.box_in = StatBox("Incoming", "", T.GREEN, T.GREEN_BG)
-        self.box_out = StatBox("Outgoing", "", T.RED, T.RED_BG)
+        boxes = QHBoxLayout(); boxes.setSpacing(28)
+        self.box_in = StatBox("Incoming", "", T.GREEN)
+        self.box_out = StatBox("Outgoing", "", T.RED)
         boxes.addWidget(self.box_in); boxes.addWidget(self.box_out)
+        boxes.addStretch(1)
         root.addLayout(boxes)
 
         # --- collapsible section: target P&L + savings rate --------------
@@ -4004,7 +3996,10 @@ def _tick_label(v, currency):
 
 def draw_axis(p, plot, bot, top, step, currency):
     """Horizontal gridlines + right-aligned tick labels in the left gutter."""
-    grid_pen = QPen(QColor(T.BORDER_SOFT), 1)
+    # GRID (not BORDER_SOFT): the gridline should be the faintest ink on the
+    # chart so the data line dominates — a flat demo trend shouldn't ship a
+    # lattice louder than itself (critique §3.2, Henderson p80 #8).
+    grid_pen = QPen(QColor(T.GRID), 1)
     f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(9)); p.setFont(f)
     tick = bot
     while tick <= top + 1e-6:
@@ -4466,6 +4461,15 @@ class CalendarHeatmap(QWidget):
             p.drawText(QRectF(pad + i * (cw + gap), pad, cw, head_h - 2),
                        int(Qt.AlignmentFlag.AlignCenter), wd)
 
+        # Structure comes from faint week-row separators + the weekday headers,
+        # not from 42 filled boxes (which was a wall of identical grey rectangles
+        # the eye had to scan to find the ~3 meaningful cells — Filipiuk p34/p35).
+        # Only cells that carry data (spend, hover, today) get any fill/ink now.
+        p.setPen(QPen(QColor(T.BORDER_SOFT), 1))
+        for r in range(1, n_weeks):
+            sy = pad + head_h + r * (ch + gap) - gap / 2
+            p.drawLine(QPointF(pad, sy), QPointF(self.width() - pad, sy))
+
         vmax = max(self.spend.values(), default=0.0) or 1.0
         self._cells = []
         for day in range(1, n_days + 1):
@@ -4476,17 +4480,15 @@ class CalendarHeatmap(QWidget):
             self._cells.append((rect, day))
 
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(T.BG_CARD_SOFT))
-            p.drawRect(rect)
             amt = self.spend.get(day, 0.0)
-            if amt > 0:
-                fill = QColor(T.RED)
+            if amt > 0:                                 # spend = the one fill that
+                fill = QColor(T.RED)                    # carries data — rounded,
                 fill.setAlpha(int(35 + 170 * min(1.0, amt / vmax)))
                 p.setBrush(fill)
-                p.drawRect(rect)
+                p.drawRoundedRect(rect, T.RADIUS_SM, T.RADIUS_SM)
             if day == self._hover:
                 hl = QColor(T.BG_HOVER); hl.setAlpha(120)
-                p.setBrush(hl); p.drawRect(rect)
+                p.setBrush(hl); p.drawRoundedRect(rect, T.RADIUS_SM, T.RADIUS_SM)
 
             # day number
             p.setFont(f9)
@@ -4506,12 +4508,13 @@ class CalendarHeatmap(QWidget):
                 p.setBrush(QColor(T.GREEN))
                 p.drawEllipse(QPointF(dx, rect.bottom() - 6), 2.4, 2.4)
 
-            # today ring
+            # today ring — now the only outlined cell, so it genuinely stands out
             if (self.today and self.today.year == self.year
                     and self.today.month == self.month and self.today.day == day):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.setPen(QPen(QColor(T.GREEN), 1.4))
-                p.drawRect(rect.adjusted(0.7, 0.7, -0.7, -0.7))
+                p.drawRoundedRect(rect.adjusted(0.7, 0.7, -0.7, -0.7),
+                                  T.RADIUS_SM, T.RADIUS_SM)
 
         if self._hover > 0:
             rect = next(r for r, d in self._cells if d == self._hover)

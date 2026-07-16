@@ -19,6 +19,10 @@ BG_HEADER     = "#181818"   # top bar
 BG_CARD       = "#1e1e1e"   # panels / cards
 BG_CARD_SOFT  = "#242424"   # nested rows, sub-boxes, tiles
 BG_HOVER      = "#2c2c2c"   # row / button hover
+BG_TAG        = "#242424"   # muted neutral tag-chip fill — metadata, NOT a
+                            # functional colour: a tag is content, so it reads as
+                            # a quiet grey pill, leaving green/accent free to mean
+                            # "income / on-track" and nothing else.
 BG_INPUT      = "#1e1e1e"   # editable fields — LIGHTER than BG_APP, not darker.
                             # Was #0e0e0e, which read as a recessed well against
                             # the old #1e1e1e card fill. Blocks are transparent
@@ -29,7 +33,11 @@ BG_INPUT      = "#1e1e1e"   # editable fields — LIGHTER than BG_APP, not darke
 BG_PILL       = "#303030"   # active segmented-button background
 
 BORDER        = "#2c2c2c"   # default hairline border
-BORDER_SOFT   = "#202020"   # subtle divider
+BORDER_SOFT   = "#1c1c1c"   # subtle divider — dropped nearer the background
+                            # (#202020 → #1c1c1c) so a hairline whispers, not speaks
+GRID          = "#181818"   # chart gridlines only — the faintest ink on a chart,
+                            # kept separate from BORDER_SOFT so dividers and grid
+                            # lines tune independently (data line must dominate)
 BORDER_LIGHT  = "#454545"   # raised border / input boundary
                             # No flat grey reaches WCAG 1.4.11's 3:1 against
                             # BG_APP without looking like a light-mode escapee
@@ -151,8 +159,10 @@ SIDEBAR_W           = 240   # was 72 — an icon rail whose 9px captions truncat
                             # ("Quick start" rendered as "Quick sta…")
 SIDEBAR_W_COLLAPSED = 48    # icon-only, toggled with "["
 HEADER_H            = 56
-RADIUS              = 3     # was 0
-RADIUS_SM           = 3
+RADIUS              = 5     # was 3 — Filipiuk p132: rounder reads as *more
+                            # user-friendly* (vs sharp = cool/clinical). 5px is
+                            # Notion's register: humane without being bubbly.
+RADIUS_SM           = 4     # chips / small controls, one step tighter than panels
 
 CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390px
                             # columns across 1500px and put a label at x=111 with
@@ -164,9 +174,13 @@ CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390
                             # fill it.
 
 GAP         = SP_M          # gutter between the three main columns
-GAP_SECTION = SP_2XL        # visual "paragraph break" between topic clusters
-BLOCK_GAP   = SP_2XL        # bottom margin under a block (replaces card borders
-                            # as the grouping mechanism)
+GAP_SECTION = 48            # visual "paragraph break" between topic clusters
+BLOCK_GAP   = 40            # air *between* blocks (5×8pt). Was 32; widened so the
+                            # page breathes between blocks the way Notion does —
+                            # calm between blocks, density kept inside them
+                            # (critique §5). GAP_SECTION stays a step larger so a
+                            # topic shift still reads as a bigger break than a
+                            # block gap.
 
 WIN_W       = 1680
 WIN_H       = 980
@@ -204,6 +218,21 @@ def compute_scale(win_w: int) -> float:
         return _SCALE_HI
     t = (win_w - _SCALE_LO_W) / (_SCALE_HI_W - _SCALE_LO_W)
     return _SCALE_LO + t * (_SCALE_HI - _SCALE_LO)
+
+
+def input_style(pad: str = "6px 9px") -> str:
+    """Shared style for a field styled inline (a field on a dialog/card that
+    needs its own BG_INPUT fill). Matches the global QSS behaviour — fill, no
+    resting border, border only on hover/focus (Notion-style, critique §2) — so
+    an inline-styled field can't drift back to a resting box while the plain
+    fields around it stay borderless. Covers QPlainTextEdit too (the note
+    editor), which the global QSS doesn't reach."""
+    sel = "QLineEdit,QPlainTextEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox"
+    return (
+        f"{sel}{{background:{BG_INPUT}; color:{TEXT};"
+        f" border:1px solid transparent; border-radius:{RADIUS}px; padding:{pad};}}"
+        f"{sel.replace(',', ':hover,')}:hover{{border:1px solid {BORDER};}}"
+        f"{sel.replace(',', ':focus,')}:focus{{border:1px solid {FOCUS};}}")
 
 # --------------------------------------------------------------------------- #
 #  Global stylesheet
@@ -243,11 +272,19 @@ def global_qss() -> str:
     QDialog {{ background: {BG_CARD}; }}
     QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {{
         background: {BG_INPUT};
-        border: 1px solid {BORDER_LIGHT};
+        border: 1px solid transparent;   /* reserve the space, show no resting box */
         border-radius: {RADIUS}px;
         padding: 6px 9px;
         selection-background-color: {GREEN};
         selection-color: {ON_ACCENT};
+    }}
+    /* A field reads as editable by being a lighter fill than the (transparent)
+       block, Notion-style — not by a resting frame. The border only appears as
+       a real state: faint on hover, FOCUS on focus. The transparent resting
+       border keeps the box model fixed so nothing shifts 1px when it shows. */
+    QLineEdit:hover, QComboBox:hover, QDateEdit:hover,
+    QDoubleSpinBox:hover, QSpinBox:hover {{
+        border: 1px solid {BORDER};
     }}
     QLineEdit:focus, QComboBox:focus, QDateEdit:focus,
     QDoubleSpinBox:focus, QSpinBox:focus {{

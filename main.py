@@ -1429,8 +1429,8 @@ class SettingsPage(QWidget):
     week_style_changed = pyqtSignal(str)   # "iso_week" | "monday_in_month"
     sidebar_changed   = pyqtSignal()       # hidden_tabs changed
 
-    _WEEK_LABELS = {"ISO weeks (Mon–Sun, cross-month)": "iso_week",
-                    "Month-aligned weeks (reset on the 1st)": "monday_in_month"}
+    _WEEK_LABELS = {"Weeks run Mon–Sun and can cross month boundaries": "iso_week",
+                    "Weeks reset on the 1st of each month": "monday_in_month"}
 
     def __init__(self, manager, on_change):
         super().__init__()
@@ -1528,8 +1528,7 @@ class SettingsPage(QWidget):
         self.basiq_key = QLineEdit(st.get("basiq_api_key", ""))
         self.basiq_key.setPlaceholderText("Basiq API key")
         self.basiq_key.setEchoMode(QLineEdit.EchoMode.Password)   # secret — don't show
-        self.basiq_key.setStyleSheet(
-            f"background:{T.BG_INPUT}; color:{T.TEXT}; border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
+        self.basiq_key.setStyleSheet(T.input_style("5px 7px"))
         krow.addWidget(self.basiq_key, 1)
         krow.addWidget(label("User id", T.TEXT_MUTED, 11))
         self.basiq_user = QLineEdit(st.get("basiq_user_id", ""))
@@ -1572,8 +1571,7 @@ class SettingsPage(QWidget):
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.rule_cat.setCompleter(completer)
         self._rule_cat_completer = completer
-        _ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-                f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
+        _ist = T.input_style("5px 7px")
         self.rule_match.setStyleSheet(_ist); self.rule_cat.setStyleSheet(_ist)
         addr = _button("Add rule", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         addr.clicked.connect(self._add_rule)
