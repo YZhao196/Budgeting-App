@@ -178,6 +178,34 @@ FONT_FAMILY       = "Segoe UI"         # base UI font — Microsoft's UI-purpose
 FONT_FAMILY_LIGHT = "Segoe UI Light"   # large display numbers only (>= ~18px)
 
 # --------------------------------------------------------------------------- #
+#  Fluid UI scale
+# --------------------------------------------------------------------------- #
+# A single global multiplier the app nudges up/down with the window width, so
+# text (and the text-sized controls that grow with it) scale *slightly* on a
+# larger monitor. Deliberately a narrow band — this is a gentle zoom, not a
+# reflow: at the band's extremes a 14px body is 13px / 16px, which every fixed
+# container (32px rows, the sidebar) still comfortably holds, so scaling fonts
+# never clips a layout. Runtime code sets UI_SCALE via widgets.apply_ui_scale().
+UI_SCALE = 1.0
+_SCALE_LO_W, _SCALE_HI_W = 1280, 2400   # window widths the band maps between
+_SCALE_LO,   _SCALE_HI   = 0.92, 1.16   # …and the scale factors at each end
+
+
+def scaled(px: float) -> int:
+    """A base pixel size scaled by the current UI_SCALE (min 1)."""
+    return max(1, round(px * UI_SCALE))
+
+
+def compute_scale(win_w: int) -> float:
+    """Map a window width to a slight scale factor, clamped to the band."""
+    if win_w <= _SCALE_LO_W:
+        return _SCALE_LO
+    if win_w >= _SCALE_HI_W:
+        return _SCALE_HI
+    t = (win_w - _SCALE_LO_W) / (_SCALE_HI_W - _SCALE_LO_W)
+    return _SCALE_LO + t * (_SCALE_HI - _SCALE_LO)
+
+# --------------------------------------------------------------------------- #
 #  Global stylesheet
 # --------------------------------------------------------------------------- #
 def global_qss() -> str:

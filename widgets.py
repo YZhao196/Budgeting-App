@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+import weakref
 from datetime import date, timedelta
 
 from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QPropertyAnimation, QRectF,
@@ -139,16 +140,57 @@ def money(v: float, currency: str = "$", signed: bool = True,
     return f"{sign}{currency}{abs(int(v)):,}"
 
 
+# Live registry for the fluid UI scale: every label() records its *base* pixel
+# size and joins this list (weakly, so it's collected with the widget). When the
+# window resizes past a threshold, apply_ui_scale() walks it and re-fits each
+# label's font to the new scale — the single mechanism behind "text scales with
+# the window", covering all ~240 label() sites without touching one of them.
+_scalable_labels: list[weakref.ref] = []
+
+
+def _scaled_font(base_px: int, bold: bool) -> QFont:
+    # Family is chosen from the *base* size (the Light face is for genuinely
+    # large display numbers), so a scaled-up small label doesn't switch faces.
+    fam = T.FONT_FAMILY_LIGHT if (base_px >= 18 and not bold) else T.FONT_FAMILY
+    f = QFont(fam); f.setPixelSize(T.scaled(base_px)); f.setBold(bold)
+    return f
+
+
 def label(text: str, color: str = T.TEXT, px: int = 12, bold: bool = False,
           align=None) -> QLabel:
     lb = QLabel(text)
-    fam = T.FONT_FAMILY_LIGHT if (px >= 18 and not bold) else T.FONT_FAMILY
-    f = QFont(fam); f.setPixelSize(px); f.setBold(bold)
-    lb.setFont(f)
+    lb._base_px = px            # remembered so the fluid scale can re-fit it
+    lb._base_bold = bold
+    lb.setFont(_scaled_font(px, bold))
     lb.setStyleSheet(f"color:{color}; background:transparent;")
     if align is not None:
         lb.setAlignment(align)
+    _scalable_labels.append(weakref.ref(lb))
     return lb
+
+
+def apply_ui_scale(scale: float, app=None) -> None:
+    """Set the global UI scale and re-fit everything that reads it.
+
+    Fonts on label()-made widgets are re-fitted directly; the application
+    default font (which the un-styled controls — buttons, inputs, spin-boxes —
+    inherit) is scaled too, so they grow in step. Custom-painted widgets read
+    T.scaled() at paint time, so they pick the new scale up on their next
+    repaint, which the resize itself triggers.
+    """
+    T.UI_SCALE = scale
+    live: list[weakref.ref] = []
+    for ref in _scalable_labels:
+        lb = ref()
+        if lb is None:
+            continue
+        live.append(ref)
+        lb.setFont(_scaled_font(lb._base_px, lb._base_bold))
+    _scalable_labels[:] = live
+    if app is not None:
+        af = app.font()
+        af.setPointSizeF(10.0 * scale)     # 10pt is the base set in main()
+        app.setFont(af)
 
 
 def hsep() -> QFrame:
@@ -189,7 +231,7 @@ class _TagChip(QLabel):
     """A small rounded tag label, optionally clickable (to filter by it)."""
     def __init__(self, text, on_click=None):
         super().__init__(text)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); self.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(9)); self.setFont(f)
         self.setStyleSheet(
             f"color:{T.ACCENT}; background:{T.BG_INPUT};"
             f"border:1px solid {T.BORDER}; border-radius:7px; padding:1px 6px;")
@@ -278,11 +320,16 @@ class Clickable(QLabel):
         super().__init__(text)
         self._c = color
         self._h = hover or T.TEXT
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(px); f.setBold(bold)
-        self.setFont(f)
+        # Join the fluid-scale registry too (it's a QLabel, so apply_ui_scale
+        # re-fits it exactly like a label()): otherwise the many Clickables used
+        # as buttons/links ("+ Add item", nav actions) wouldn't scale live.
+        self._base_px = px
+        self._base_bold = bold
+        self.setFont(_scaled_font(px, bold))
         self.setStyleSheet(f"color:{color}; background:transparent;")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        _scalable_labels.append(weakref.ref(self))
 
     def set_base_color(self, color):
         self._c = color
@@ -387,7 +434,7 @@ class NavButton(QWidget):
                           self._ICON, self._ICON), col, 1.7)
 
         if not self._collapsed:
-            f = QFont(T.FONT_FAMILY); f.setPixelSize(T.FS_BODY)
+            f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(T.FS_BODY))
             f.setBold(self._active)
             p.setFont(f)
             p.setPen(QColor(col))
@@ -420,7 +467,7 @@ class Sidebar(QWidget):
         self._lay = lay
 
         self.logo = QLabel("$")
-        lf = QFont(T.FONT_FAMILY); lf.setPixelSize(22); lf.setBold(True)
+        lf = QFont(T.FONT_FAMILY); lf.setPixelSize(T.scaled(22)); lf.setBold(True)
         self.logo.setFont(lf)
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.logo.setFixedHeight(T.HEADER_H)
@@ -650,7 +697,7 @@ class MonthNav(QWidget):
         bl.clicked.connect(self.prev.emit)
 
         self.lbl = QPushButton("—")
-        lf = QFont(T.FONT_FAMILY); lf.setPixelSize(12); lf.setBold(True)
+        lf = QFont(T.FONT_FAMILY); lf.setPixelSize(T.scaled(12)); lf.setBold(True)
         self.lbl.setFont(lf)
         self.lbl.setFixedWidth(148)
         self.lbl.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -778,7 +825,7 @@ class SegTabBar(QWidget):
             b = QPushButton(name)
             b.setCheckable(True)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            bf = QFont(T.FONT_FAMILY); bf.setPixelSize(11); bf.setBold(kind == "pill")
+            bf = QFont(T.FONT_FAMILY); bf.setPixelSize(T.scaled(11)); bf.setBold(kind == "pill")
             b.setFont(bf)
             self._style(b)
             if i == active:
@@ -853,7 +900,7 @@ class InlineEdit(QLineEdit):
         self._on_commit = on_commit
         self._on_cancel = on_cancel
         self._on_tab = on_tab
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(px); self.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(px)); self.setFont(f)
         if right:
             self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setStyleSheet(
@@ -3727,7 +3774,7 @@ def _draw_chart_hover(p, geo, idx, plot, currency, color):
     p.drawEllipse(QPointF(hx, hy), 6.5, 6.5)
 
     text = money(val, currency)
-    f = QFont(T.FONT_FAMILY); f.setPixelSize(10); f.setBold(True); p.setFont(f)
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(10)); f.setBold(True); p.setFont(f)
     tw = QFontMetrics(f).horizontalAdvance(text) + 16
     th = 21
     bx = min(max(hx - tw / 2, plot.left()), plot.right() - tw)
@@ -3812,7 +3859,7 @@ class PnLChart(QWidget):
             p.drawLine(pts[i], pts[i + 1])
 
         # markers + x labels
-        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9)
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(9))
         for i, (lab, val, cur) in enumerate(self.data):
             p.setBrush(QColor(T.GREEN)); p.setPen(Qt.PenStyle.NoPen)
             r = 4.5 if cur else 3.0
@@ -3958,7 +4005,7 @@ def _tick_label(v, currency):
 def draw_axis(p, plot, bot, top, step, currency):
     """Horizontal gridlines + right-aligned tick labels in the left gutter."""
     grid_pen = QPen(QColor(T.BORDER_SOFT), 1)
-    f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(9)); p.setFont(f)
     tick = bot
     while tick <= top + 1e-6:
         y = plot.bottom() - (tick - bot) / (top - bot) * plot.height()
@@ -3976,8 +4023,8 @@ def draw_hover_pill(p, plot, x, y, lines):
     is anchored above (x, y) and clamped inside ``plot``."""
     if not lines:
         return
-    f = QFont(T.FONT_FAMILY); f.setPixelSize(10)
-    fb = QFont(T.FONT_FAMILY); fb.setPixelSize(10); fb.setBold(True)
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(10))
+    fb = QFont(T.FONT_FAMILY); fb.setPixelSize(T.scaled(10)); fb.setBold(True)
     fm, fmb = QFontMetrics(f), QFontMetrics(fb)
     tw = max((fmb if b else fm).horizontalAdvance(t) for t, _, b in lines) + 16
     lh = 15
@@ -3998,7 +4045,7 @@ def draw_hover_pill(p, plot, x, y, lines):
 
 def draw_empty(p, rect, msg):
     """Dim centred placeholder for charts with nothing to show."""
-    f = QFont(T.FONT_FAMILY); f.setPixelSize(11); p.setFont(f)
+    f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(11)); p.setFont(f)
     p.setPen(QColor(T.TEXT_DIM))
     p.drawText(QRectF(rect), int(Qt.AlignmentFlag.AlignCenter), msg)
 
@@ -4172,8 +4219,8 @@ class GroupedBarChart(QWidget):
         maxv = max(max(b, a) for _, b, a in self.rows) or 1.0
         bar_x = self.LABEL_W
         bar_w = max(10.0, self.width() - self.LABEL_W - self.VALUE_W)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(11)
-        fs = QFont(T.FONT_FAMILY); fs.setPixelSize(10)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(11))
+        fs = QFont(T.FONT_FAMILY); fs.setPixelSize(T.scaled(10))
 
         for i, (name, budget, actual) in enumerate(self.rows):
             y0 = 4 + i * self.ROW_H
@@ -4308,7 +4355,7 @@ class StackedBarChart(QWidget):
         slot = plot.width() / n
         bw = slot * 0.56
         self._geo = []
-        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9)
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(9))
         for m, row in enumerate(self.matrix):
             x = plot.left() + slot * m + (slot - bw) / 2
             acc = 0.0
@@ -4413,7 +4460,7 @@ class CalendarHeatmap(QWidget):
         cw = (self.width() - 2 * pad - gap * 6) / 7
         ch = (self.height() - 2 * pad - head_h - gap * (n_weeks - 1)) / n_weeks
 
-        f9 = QFont(T.FONT_FAMILY); f9.setPixelSize(9)
+        f9 = QFont(T.FONT_FAMILY); f9.setPixelSize(T.scaled(9))
         p.setFont(f9); p.setPen(QColor(T.TEXT_DIM))
         for i, wd in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
             p.drawText(QRectF(pad + i * (cw + gap), pad, cw, head_h - 2),
@@ -4601,7 +4648,7 @@ class FanChart(QWidget):
                 p.drawEllipse(pt, 3.0, 3.0)
 
         # x labels
-        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9); p.setFont(f2)
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(9)); p.setFont(f2)
         self._geo = []
         for i in range(nh):
             lab, val = self.history[i]
@@ -4726,7 +4773,7 @@ class AreaChart(QWidget):
         for pt in npts:
             p.drawEllipse(pt, 3.0, 3.0)
 
-        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9); p.setFont(f2)
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(9)); p.setFont(f2)
         self._geo = []
         for i, s in enumerate(self.series):
             self._geo.append((xs[i], npts[i].y(), s))
@@ -4802,7 +4849,7 @@ class SubscriptionTimeline(QWidget):
         # axis
         p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
         p.drawLine(QPointF(x0, axis_y), QPointF(x1, axis_y))
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(9)); p.setFont(f)
         for frac, lab in ((0, "today"), (0.5, f"+{self.days // 2}d"),
                           (1.0, f"+{self.days}d")):
             x = x0 + (x1 - x0) * frac
@@ -4958,7 +5005,7 @@ class LineChart(QWidget):
         for i in range(n - 1):
             p.drawLine(pts[i], pts[i + 1])
 
-        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(9)
+        f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(9))
         for i, (lab, _) in enumerate(self.points):
             cur = self.highlight_last and i == n - 1
             p.setBrush(QColor(self.color)); p.setPen(Qt.PenStyle.NoPen)
@@ -5101,23 +5148,23 @@ class DonutChart(QWidget):
             name = self._names[self._hover] if self._hover < len(self._names) else ""
             pct = v / total * 100
             if name:
-                f = QFont(T.FONT_FAMILY); f.setPixelSize(10); p.setFont(f)
+                f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(10)); p.setFont(f)
                 p.setPen(QColor(T.TEXT_MUTED))
                 p.drawText(hrect.adjusted(4, hole * 0.12, -4, 0),
                            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
                            name)
-            f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(17); f2.setBold(True); p.setFont(f2)
+            f2 = QFont(T.FONT_FAMILY); f2.setPixelSize(T.scaled(17)); f2.setBold(True); p.setFont(f2)
             p.setPen(QColor(T.TEXT))
             p.drawText(hrect, int(Qt.AlignmentFlag.AlignCenter), f"{pct:.0f}%")
         else:
             if self.center_top:
-                f = QFont(T.FONT_FAMILY); f.setPixelSize(17); f.setBold(True); p.setFont(f)
+                f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(17)); f.setBold(True); p.setFont(f)
                 p.setPen(QColor(T.TEXT))
                 p.drawText(hrect.adjusted(0, hole * 0.18, 0, 0),
                            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
                            self.center_top)
             if self.center_sub:
-                f = QFont(T.FONT_FAMILY); f.setPixelSize(10); p.setFont(f)
+                f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(10)); p.setFont(f)
                 p.setPen(QColor(T.TEXT_MUTED))
                 p.drawText(hrect.adjusted(0, 0, 0, -hole * 0.20),
                            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom),
@@ -5250,8 +5297,8 @@ class WhoOwesBar(QWidget):
         track_x = self.LABEL_W
         track_w = max(20.0, self.width() - self.LABEL_W - self.VALUE_W)
         mid = track_x + track_w / 2
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(11)
-        fv = QFont(T.FONT_FAMILY); fv.setPixelSize(10); fv.setBold(True)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(11))
+        fv = QFont(T.FONT_FAMILY); fv.setPixelSize(T.scaled(10)); fv.setBold(True)
 
         # centre zero line
         p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))

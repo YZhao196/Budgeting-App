@@ -1648,7 +1648,7 @@ class SettingsPage(QWidget):
             "A one-off .bak backup is kept in the data folder.", T.TEXT_MUTED, 11))
         rst = QPushButton("Reset all budget data")
         rst.setCursor(Qt.CursorShape.PointingHandCursor)
-        rf = QFont(T.FONT_FAMILY); rf.setPixelSize(12); rst.setFont(rf)
+        rf = QFont(T.FONT_FAMILY); rf.setPixelSize(T.scaled(12)); rst.setFont(rf)
         rst.setStyleSheet(
             f"QPushButton{{background:transparent; color:{T.RED};"
             f"border:1px solid {T.RED_BORDER}; border-radius:{T.RADIUS}px; padding:7px 16px;}}"
@@ -2040,7 +2040,7 @@ class OnboardingDialog(QDialog):
     def _btn(self, text, primary=False):
         b = QPushButton(text)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(13); b.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(13)); b.setFont(f)
         if primary:
             b.setStyleSheet(
                 f"QPushButton{{background:{T.ACCENT};color:{T.ON_ACCENT};border:none;"
@@ -2089,7 +2089,7 @@ class OnboardingDialog(QDialog):
         lay.addWidget(label(title, T.TEXT, 20, bold=True))
         lay.addSpacing(5)
         sub_lbl = QLabel(sub); sub_lbl.setWordWrap(True)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(12); sub_lbl.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(12)); sub_lbl.setFont(f)
         sub_lbl.setStyleSheet(f"color:{T.TEXT_MUTED};background:transparent;")
         lay.addWidget(sub_lbl)
         lay.addSpacing(20)
@@ -2113,7 +2113,7 @@ class OnboardingDialog(QDialog):
         sub = QLabel("Your personal finance tracker.\n"
                      "Simple, private — everything stays on your device.")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter); sub.setWordWrap(True)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(13); sub.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(13)); sub.setFont(f)
         sub.setStyleSheet(f"color:{T.TEXT_MUTED};background:transparent;")
         lay.addWidget(sub)
         lay.addStretch(2)
@@ -2321,7 +2321,7 @@ class OnboardingDialog(QDialog):
         lay.addSpacing(10)
         sub = QLabel("Your budget is ready.\nAdd or edit items any time from the Overview.")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter); sub.setWordWrap(True)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(13); sub.setFont(f)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(13)); sub.setFont(f)
         sub.setStyleSheet(f"color:{T.TEXT_MUTED};background:transparent;")
         lay.addWidget(sub)
         lay.addStretch(2)
@@ -3090,6 +3090,32 @@ class MainWindow(QMainWindow):
         if geo:
             from PyQt6.QtCore import QByteArray
             self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
+
+        # Fluid UI scale: nudge fonts up/down slightly with the window width.
+        # Debounced so a drag re-fits fonts once the size settles (≈70ms) rather
+        # than on every intermediate pixel, which would thrash ~240 label fonts.
+        self._scale_timer = QTimer(self)
+        self._scale_timer.setSingleShot(True)
+        self._scale_timer.setInterval(70)
+        self._scale_timer.timeout.connect(self._apply_ui_scale)
+        self._apply_ui_scale()           # match the initial/restored window size
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # _scale_timer may not exist yet during the first show; guard for it.
+        if getattr(self, "_scale_timer", None):
+            self._scale_timer.start()
+
+    def _apply_ui_scale(self):
+        scale = round(T.compute_scale(self.width()), 3)
+        if abs(scale - T.UI_SCALE) < 0.004:
+            return
+        widgets.apply_ui_scale(scale, QApplication.instance())
+        # Custom-painted widgets (charts, nav, row glyphs) read T.scaled() at
+        # paint time; force one repaint so they pick up the new scale now rather
+        # than on their next incidental update.
+        for w in self.findChildren(QWidget):
+            w.update()
 
     def closeEvent(self, e):
         """Persist window geometry so the next launch reopens in place."""
