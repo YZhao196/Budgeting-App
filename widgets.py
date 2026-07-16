@@ -34,7 +34,8 @@ W_PAID   = 20          # expense "paid" toggle
 W_DUE    = 48
 W_PR     = 28
 W_ADDED  = 44
-W_ACT    = 40          # hover action button (✕)
+ROW_ICON = 17          # a single row-action glyph box (recurrence/tag/note/delete)
+W_ACT    = ROW_ICON * 4 + 3 * 3   # the action column holds up to four glyphs
 PLUS_W   = 16          # left-side hover "+" that adds a sub-item
 CHEV_W   = 14
 INDENT   = 16
@@ -888,6 +889,75 @@ class InlineEdit(QLineEdit):
         return super().focusNextPrevChild(next)
 
 
+class RowIcon(QWidget):
+    """A single ledger-row action, drawn as one of the custom vector glyphs
+    (icons.py) rather than a borrowed Unicode character.
+
+    Three visual states, so the same control both invites an action and reports
+    a state:
+      · rest      — T.TEXT_DIM, the quiet default
+      · hover      — ``hover`` colour, on direct mouse-over or keyboard focus
+      · lit       — ``on_color`` when the underlying property is set (a note
+                    exists, recurrence is active); a lit icon stays visible even
+                    when the row isn't hovered, because it's now status, not just
+                    an affordance.
+
+    Rows hide the un-lit icons until the row is hovered (see CategoryRow); a lit
+    icon opts out of that hiding via ``is_lit``.
+    """
+    clicked = pyqtSignal()
+
+    def __init__(self, name, tooltip, on_color=None, hover=None):
+        super().__init__()
+        self.name = name
+        self._on_color = on_color
+        self._hover_col = hover or T.ACCENT
+        self._lit = False
+        self._hover = False
+        self.setFixedSize(ROW_ICON, ROW_H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.setToolTip(tooltip)
+
+    @property
+    def is_lit(self):
+        return self._lit
+
+    def set_lit(self, lit):
+        self._lit = bool(lit)
+        self.update()
+
+    def enterEvent(self, e): self._hover = True; self.update()
+    def leaveEvent(self, e): self._hover = False; self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)
+
+    def focusInEvent(self, e):  super().focusInEvent(e);  self.update()
+    def focusOutEvent(self, e): super().focusOutEvent(e); self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        if self._hover or self.hasFocus():
+            col = self._hover_col
+        elif self._lit and self._on_color:
+            col = self._on_color
+        else:
+            col = T.TEXT_DIM
+        isz = ROW_ICON - 4
+        m = (self.width() - isz) / 2
+        icons.draw(p, self.name, QRectF(m, (self.height() - isz) / 2, isz, isz),
+                   col, 1.4)
+        draw_focus_ring(self, p)
+
+
 class PriorityCell(QWidget):
     """The 'hidden dropdown' priority control: a dot that opens a menu on click.
     Blank when unset, unless the row is hovered."""
@@ -937,6 +1007,7 @@ class CategoryRow(QWidget):
         self.card = card
         self.node = node
         self._pcell = None
+        self._row_icons = []          # RowIcons that hide at rest, show on hover
         self.setObjectName("Row")
         self.setFixedHeight(ROW_H)
         self.setStyleSheet(f"#Row:hover{{background:{T.BG_HOVER};}}")
@@ -955,17 +1026,13 @@ class CategoryRow(QWidget):
         if depth:
             lay.addSpacing(depth * INDENT)
 
-        # ── left "+" : add an indented sub-item (revealed on hover) ───── #
+        # ── left "+" : add an indented sub-item (hover-revealed) ───────── #
         plus_cell = QWidget(); plus_cell.setFixedWidth(PLUS_W)
         pcl = QHBoxLayout(plus_cell); pcl.setContentsMargins(0, 0, 0, 0); pcl.setSpacing(0)
-        # Always visible (dim) rather than hover-only: a fully-invisible-until-
-        # moused-over affordance has no static hint it exists (polish review,
-        # 2026-07) — Clickable's own enterEvent still brightens it on direct
-        # hover, so it stays subtle at rest without being undiscoverable.
-        add_sub = Clickable("+", T.TEXT_DIM, 15, hover=T.ACCENT)
-        add_sub.setToolTip("Add sub-item")
+        add_sub = RowIcon("plus_sub", "Add sub-item")
         add_sub.clicked.connect(lambda: card._add_child(node))
         pcl.addWidget(add_sub)
+        self._row_icons.append(add_sub)
         lay.addWidget(plus_cell)
 
         # ── chevron ──────────────────────────────────────────────────── #
@@ -996,28 +1063,11 @@ class CategoryRow(QWidget):
             else:
                 nm.clicked.connect(lambda: card._start(node, "name"))
             lay.addWidget(nm)
-            if leaf:
-                on = bool(node.get("_recur", node.get("recurring")))
-                rc = Clickable("↻", T.TEXT if on else T.TEXT_DIM, 12, hover=T.ACCENT)
-                rc.setToolTip(
-                    repeat_label(node.get("_recur_repeat") or node.get("repeat"))
-                    or "Set recurrence")
-                rc.clicked.connect(lambda: card._open_repeat(node))
-                lay.addWidget(rc)
-            # tag chips (click to filter) + edit affordance (revealed on hover)
+            # Tag *chips* stay by the name — they're content (what this item is
+            # tagged), not an action. The edit-tags / recurrence / note / delete
+            # glyphs moved out to the trailing action column (see below).
             for t in (node.get("tags") or [])[:4]:
                 lay.addWidget(tag_chip(t, on_click=lambda t=t: card._filter_tag(t)))
-            tg = Clickable("#", T.TEXT_DIM, 13, hover=T.ACCENT)
-            tg.setToolTip("Edit tags")
-            tg.clicked.connect(lambda: card._open_tags(node))
-            lay.addWidget(tg)
-            # note affordance — brighter (T.ACCENT) once a note exists, dim otherwise
-            if leaf:
-                has_note = bool((node.get("note") or "").strip())
-                nt = Clickable("✎", T.ACCENT if has_note else T.TEXT_DIM, 12, hover=T.ACCENT)
-                nt.setToolTip(node.get("note") if has_note else "Add note")
-                nt.clicked.connect(lambda: card._open_note(node))
-                lay.addWidget(nt)
             lay.addStretch(1)
 
         # ── amount (parents show whitespace — value lives in children) ── #
@@ -1080,21 +1130,57 @@ class CategoryRow(QWidget):
         added.setFixedWidth(W_ADDED)
         lay.addWidget(added)
 
-        # ── actions: ✕ delete (revealed on hover) ────────────────────── #
+        # ── action column: recurrence · tag · note · delete ──────────── #
+        # One right-aligned group instead of glyphs scattered along the row.
+        # Everything here is hover-revealed, EXCEPT an icon that's "lit" because
+        # its property is set (an active recurrence, an existing note) — a lit
+        # icon stays visible at rest as a status marker. Right-aligned so the
+        # group hugs the row's edge no matter which optional icons are present.
         act = QWidget(); act.setFixedWidth(W_ACT)
-        al  = QHBoxLayout(act); al.setContentsMargins(0, 0, 0, 0); al.setSpacing(4)
+        al  = QHBoxLayout(act); al.setContentsMargins(0, 0, 0, 0); al.setSpacing(3)
         al.addStretch(1)
-        x = Clickable("✕", T.TEXT_DIM, 11, hover=T.RED)
-        x.setToolTip("Delete")
+
+        if leaf:
+            on = bool(node.get("_recur", node.get("recurring")))
+            rc = RowIcon("recurring",
+                         repeat_label(node.get("_recur_repeat") or node.get("repeat"))
+                         or "Set recurrence",
+                         on_color=T.TEXT)
+            rc.set_lit(on)
+            rc.clicked.connect(lambda: card._open_repeat(node))
+            al.addWidget(rc); self._row_icons.append(rc)
+
+        tg = RowIcon("tag", "Edit tags")
+        tg.clicked.connect(lambda: card._open_tags(node))
+        al.addWidget(tg); self._row_icons.append(tg)
+
+        if leaf:
+            has_note = bool((node.get("note") or "").strip())
+            nt = RowIcon("note", node.get("note") if has_note else "Add note",
+                         on_color=T.ACCENT)
+            nt.set_lit(has_note)
+            nt.clicked.connect(lambda: card._open_note(node))
+            al.addWidget(nt); self._row_icons.append(nt)
+
+        x = RowIcon("trash", "Delete", hover=T.RED)
         x.clicked.connect(lambda: card._delete(node))
-        al.addWidget(x)
+        al.addWidget(x); self._row_icons.append(x)
+
         lay.addWidget(act)
 
+        # Initial visibility: only lit icons show at rest; the rest wait for hover.
+        for ic in self._row_icons:
+            ic.setVisible(ic.is_lit)
+
     def enterEvent(self, e):
+        for ic in self._row_icons:
+            ic.setVisible(True)
         if self._pcell:
             self._pcell.set_hover(True)
 
     def leaveEvent(self, e):
+        for ic in self._row_icons:
+            ic.setVisible(ic.is_lit)
         if self._pcell:
             self._pcell.set_hover(False)
 

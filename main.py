@@ -477,9 +477,10 @@ class _AnalyticsOverview(QWidget):
         trow2, self.tiles2 = tile_row(["Best month", "Worst month", "Months positive", "Income growth"])
         lay.addLayout(trow2)
 
-        # Month-by-month table moved up here: it's the fastest "am I on
-        # track" glance on the page and shouldn't require scrolling past a
-        # dozen charts to reach.
+        # Month-by-month table (the numbers) paired with spending composition
+        # (the same spend as a shape) — the table is narrow content that wasted
+        # ~950px of the wide column on its own, and the two are complementary
+        # views of the same history, so they belong on one row.
         cmp_card, clay = card()
         clay.addWidget(label("Month by month", T.TEXT, T.FS_HEAD, bold=True))
         hdr = QHBoxLayout()
@@ -492,10 +493,29 @@ class _AnalyticsOverview(QWidget):
         clay.addLayout(hdr)
         self._cmp_box = QVBoxLayout(); self._cmp_box.setSpacing(3)
         clay.addLayout(self._cmp_box)
-        lay.addWidget(cmp_card)
 
-        # Budget vs actual is the core "am I on budget" loop — full width so
-        # bars have room to read clearly, rather than sharing a row.
+        stk_card, sly = card()
+        sly.addWidget(label("Spending composition — last 6 months", T.TEXT, T.FS_HEAD, bold=True))
+        srow = QHBoxLayout(); srow.setSpacing(14)
+        self.stacked = StackedBarChart()
+        self.stacked.setMinimumHeight(260)
+        srow.addWidget(self.stacked, 1)
+        self.stacked_legend = ChartLegend()
+        leg_host = QVBoxLayout(); leg_host.addStretch(1)
+        leg_host.addWidget(self.stacked_legend); leg_host.addStretch(1)
+        srow.addLayout(leg_host)
+        sly.addLayout(srow)
+        self.stacked.hovered.connect(
+            lambda m, c: self.stacked_legend.set_hover(c))
+        self.stacked_legend.hovered.connect(self.stacked.set_hover_cat)
+
+        row_history = QHBoxLayout(); row_history.setSpacing(T.GAP)
+        row_history.addWidget(cmp_card, 2)
+        row_history.addWidget(stk_card, 3)
+        lay.addLayout(row_history)
+
+        # Budget vs actual is the core "am I on budget" loop — full width so the
+        # grouped bars have room to read clearly, rather than sharing a row.
         bva_card, bvly = card()
         bva_hdr = QHBoxLayout()
         self._bva_title = label("Budget vs actual — this month", T.TEXT, T.FS_HEAD, bold=True)
@@ -512,22 +532,6 @@ class _AnalyticsOverview(QWidget):
         self._bva_empty.setWordWrap(True); self._bva_empty.setVisible(False)
         bvly.addWidget(self._bva_empty)
         lay.addWidget(bva_card)
-
-        stk_card, sly = card()
-        sly.addWidget(label("Spending composition — last 6 months", T.TEXT, T.FS_HEAD, bold=True))
-        srow = QHBoxLayout(); srow.setSpacing(14)
-        self.stacked = StackedBarChart()
-        self.stacked.setMinimumHeight(260)
-        srow.addWidget(self.stacked, 1)
-        self.stacked_legend = ChartLegend()
-        leg_host = QVBoxLayout(); leg_host.addStretch(1)
-        leg_host.addWidget(self.stacked_legend); leg_host.addStretch(1)
-        srow.addLayout(leg_host)
-        sly.addLayout(srow)
-        self.stacked.hovered.connect(
-            lambda m, c: self.stacked_legend.set_hover(c))
-        self.stacked_legend.hovered.connect(self.stacked.set_hover_cat)
-        lay.addWidget(stk_card)
 
         # Topic shift: from this-month budget tracking to a longer-run
         # forecast/net-worth view — extra breathing room marks the break.
@@ -556,6 +560,11 @@ class _AnalyticsOverview(QWidget):
 
         lay.addLayout(row_forecast)
 
+        # Trend paired with the category donut it drives: the trend says "click a
+        # point to filter breakdown", and now the breakdown sits right beside it
+        # instead of stranded at the bottom of the page. The donut is compact
+        # (a 168px ring + legend), so pairing it here also reclaims the width it
+        # used to waste in a full-row block of its own.
         self._trend_label = label("P&L vs target — last 5 months  ·  click a point to filter breakdown",
                                   T.TEXT_MUTED, 12)
         trend, tlay = card()
@@ -563,7 +572,23 @@ class _AnalyticsOverview(QWidget):
         self.trend = LineChart(); self.trend.setMinimumHeight(210)
         self.trend.clicked_idx.connect(self._on_trend_click)
         tlay.addWidget(self.trend)
-        lay.addWidget(trend)
+
+        self.donut_card, dlay = card()
+        self.donut_title = label("", T.TEXT_MUTED, 12)
+        dlay.addWidget(self.donut_title)
+        drow = QHBoxLayout(); drow.setSpacing(14)
+        self.donut = DonutChart(); self.donut.setFixedSize(168, 168)
+        drow.addWidget(self.donut)
+        self.legend = QVBoxLayout(); self.legend.setSpacing(2)
+        leg_host = QVBoxLayout(); leg_host.addStretch(1)
+        leg_host.addLayout(self.legend); leg_host.addStretch(1)
+        drow.addLayout(leg_host, 1)
+        dlay.addLayout(drow)
+
+        row_trend = QHBoxLayout(); row_trend.setSpacing(T.GAP)
+        row_trend.addWidget(trend, 3)
+        row_trend.addWidget(self.donut_card, 2)
+        lay.addLayout(row_trend)
 
         # Topic shift: from trend/history into forward-looking + reconcile
         # analysis.
@@ -595,25 +620,8 @@ class _AnalyticsOverview(QWidget):
 
         lay.addLayout(row_pred)
 
-        # Topic shift: into drill-down detail (this section always reflects
-        # whichever month was last clicked in the trend chart / table above).
-        lay.addSpacing(T.GAP_SECTION - T.GAP)
-
-        self.donut_card, dlay = card()
-        self.donut_title = label("", T.TEXT_MUTED, 12)
-        dlay.addWidget(self.donut_title)
-        drow = QHBoxLayout(); drow.setSpacing(14)
-        self.donut = DonutChart(); self.donut.setFixedSize(168, 168)
-        drow.addWidget(self.donut)
-        self.legend = QVBoxLayout(); self.legend.setSpacing(2)
-        leg_host = QVBoxLayout(); leg_host.addStretch(1)
-        leg_host.addLayout(self.legend); leg_host.addStretch(1)
-        drow.addLayout(leg_host, 1)
-        dlay.addLayout(drow)
-        lay.addWidget(self.donut_card)
-
         lay.addStretch(1)
-        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
+        outer.addWidget(scrollable(content, T.CONTENT_MAX_W_WIDE))
         self._months_series: list[tuple[int, int]] = []
 
     def set_context(self, doc, year, month):

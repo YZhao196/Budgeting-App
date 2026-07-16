@@ -134,6 +134,47 @@ def draw(p: QPainter, name: str, rect: QRectF, color: str, w: float = 1.6) -> No
         p.drawEllipse(QPointF(cx - R * 0.16, cy - R * 0.16), R * 0.5, R * 0.5)
         p.drawLine(pt(0.30, 0.30), pt(0.66, 0.66))
 
+    # ---- ledger-row action glyphs (their own column, hover-revealed) -------- #
+    # Authored to sit together as a set: same line weight, same optical size, so
+    # the actions column reads as one control group rather than four borrowed
+    # Unicode characters at four different metrics.
+    elif name == "tag":               # luggage/price tag + eyelet
+        path = QPainterPath(pt(-0.62, 0.0))          # pointed left tip
+        path.lineTo(pt(-0.16, -0.52))
+        path.lineTo(pt(0.60, -0.52))
+        path.lineTo(pt(0.60, 0.52))
+        path.lineTo(pt(-0.16, 0.52))
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawEllipse(QPointF(cx - R * 0.24, cy), R * 0.10, R * 0.10)   # eyelet
+
+    elif name == "note":              # pencil: shaft + sharpened nib + ferrule
+        p.drawLine(pt(0.40, -0.40), pt(-0.34, 0.34))          # shaft
+        p.drawLine(pt(-0.34, 0.34), pt(-0.54, 0.54))          # nib to point
+        p.drawLine(pt(-0.50, 0.30), pt(-0.54, 0.54))          # nib edge
+        p.drawLine(pt(0.18, -0.34), pt(0.34, -0.18))          # metal ferrule band
+
+    elif name == "trash":             # waste bin: lid + handle + tapered body + ribs
+        p.drawLine(pt(-0.54, -0.30), pt(0.54, -0.30))         # lid line
+        hp = QPainterPath(pt(-0.20, -0.30))                   # handle
+        hp.lineTo(pt(-0.20, -0.50)); hp.lineTo(pt(0.20, -0.50)); hp.lineTo(pt(0.20, -0.30))
+        p.drawPath(hp)
+        bp = QPainterPath(pt(-0.42, -0.30))                   # tapered body
+        bp.lineTo(pt(-0.32, 0.52)); bp.lineTo(pt(0.32, 0.52)); bp.lineTo(pt(0.42, -0.30))
+        p.drawPath(bp)
+        p.drawLine(pt(-0.12, -0.08), pt(-0.10, 0.34))         # ribs
+        p.drawLine(pt(0.12, -0.08), pt(0.10, 0.34))
+
+    elif name == "cross":             # clean delete/close X (vector, not the "✕" glyph)
+        p.drawLine(pt(-0.42, -0.42), pt(0.42, 0.42))
+        p.drawLine(pt(0.42, -0.42), pt(-0.42, 0.42))
+
+    elif name == "plus_sub":          # add sub-item: small corner elbow + bold plus
+        p.drawLine(pt(-0.62, -0.55), pt(-0.62, -0.15))        # short elbow down…
+        p.drawLine(pt(-0.62, -0.15), pt(-0.30, -0.15))        # …then right
+        p.drawLine(pt(0.14, -0.34), pt(0.14, 0.42))          # bold plus (dominant)
+        p.drawLine(pt(-0.24, 0.04), pt(0.52, 0.04))
+
     elif name == "module":            # plugin: 2×2 blocks
         s2 = R * 0.42; gap = R * 0.16; rad = s2 * 0.25
         for ox in (-s2 - gap / 2, gap / 2):

@@ -154,6 +154,12 @@ HEADER_H            = 56
 RADIUS              = 3     # was 0
 RADIUS_SM           = 3
 
+CONTENT_MAX_W_WIDE = 1560   # dense dashboard pages (Analytics): many charts that
+                            # each want width, so the reading-column cap below is
+                            # the wrong tool — they get a near-full-width column and
+                            # pair blocks two-up instead of stranding a compact
+                            # donut in a 1100px row. Still capped (not unbounded) so
+                            # the page keeps an edge margin on very wide monitors.
 CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390px
                             # columns across 1500px and put a label at x=111 with
                             # its own spinbox at x=1520. Filipiuk p33: elements far
