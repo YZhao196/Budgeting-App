@@ -928,7 +928,12 @@ def _button(text, fg, bg, border):
         # without this a keyboard-focused button is visually identical to an
         # unfocused one — nothing shows where Tab landed. Same T.FOCUS colour
         # already used for focused text inputs, for one consistent signal.
-        f"QPushButton:focus{{border-color:{T.FOCUS};}}")
+        f"QPushButton:focus{{border-color:{T.FOCUS};}}"
+        # A disabled button must *look* disabled (Filipiuk p133): a greyed,
+        # borderless-ish state so "Sync now" with no key reads as unavailable
+        # instead of silently doing nothing.
+        f"QPushButton:disabled{{color:{T.TEXT_DIM}; background:transparent;"
+        f"border-color:{T.BORDER_SOFT};}}")
     return b
 
 

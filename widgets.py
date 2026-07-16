@@ -320,10 +320,17 @@ class Clickable(QLabel):
     Focusable: Tab reaches it, Enter/Space activates it."""
     clicked = pyqtSignal()
 
-    def __init__(self, text, color=T.TEXT_MUTED, px=12, hover=None, bold=False):
+    def __init__(self, text, color=T.TEXT_MUTED, px=12, hover=None, bold=False,
+                 editable=False):
         super().__init__(text)
         self._c = color
         self._h = hover or T.TEXT
+        self._hover = False
+        # editable=True marks click-to-edit *text* (a ledger name/amount) rather
+        # than a link/button: it gets a text cursor and a quiet dotted underline
+        # on hover, so a cold user can see the value is editable without prior
+        # knowledge (critique §7; Filipiuk p281 — a clickable thing must look it).
+        self._editable = editable
         # Join the fluid-scale registry too (it's a QLabel, so apply_ui_scale
         # re-fits it exactly like a label()): otherwise the many Clickables used
         # as buttons/links ("+ Add item", nav actions) wouldn't scale live.
@@ -331,7 +338,8 @@ class Clickable(QLabel):
         self._base_bold = bold
         self.setFont(_scaled_font(px, bold))
         self.setStyleSheet(f"color:{color}; background:transparent;")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.IBeamCursor if editable
+                       else Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         _scalable_labels.append(weakref.ref(self))
 
@@ -340,10 +348,16 @@ class Clickable(QLabel):
         self.setStyleSheet(f"color:{color}; background:transparent;")
 
     def enterEvent(self, e):
+        self._hover = True
         self.setStyleSheet(f"color:{self._h}; background:transparent;")
+        if self._editable:
+            self.update()
 
     def leaveEvent(self, e):
+        self._hover = False
         self.setStyleSheet(f"color:{self._c}; background:transparent;")
+        if self._editable:
+            self.update()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -360,6 +374,22 @@ class Clickable(QLabel):
 
     def paintEvent(self, e):
         super().paintEvent(e)
+        if self._editable and (self._hover or self.hasFocus()):
+            fm = self.fontMetrics()
+            tw = min(fm.horizontalAdvance(self.text()), self.width())
+            al = self.alignment()
+            if al & Qt.AlignmentFlag.AlignRight:
+                x0, x1 = self.width() - tw, self.width()
+            elif al & Qt.AlignmentFlag.AlignHCenter:
+                x0 = (self.width() - tw) / 2; x1 = x0 + tw
+            else:
+                x0, x1 = 0, tw
+            y = self.height() - 2
+            pen = QPen(QColor(self._h), 1, Qt.PenStyle.DotLine)
+            p = QPainter(self)
+            p.setPen(pen)
+            p.drawLine(QPointF(x0, y), QPointF(x1, y))
+            p.end()
         draw_focus_ring(self)
 
 
@@ -1108,7 +1138,10 @@ class CategoryRow(QWidget):
             ie.setMinimumWidth(60)
             lay.addWidget(ie, 1)
         else:
-            nm = Clickable(node["name"], nm_col, 13, hover=T.TEXT)
+            # A leaf name is click-to-edit (editable underline); a parent name
+            # toggles children (a link, not a field) so it stays a pointer.
+            nm = Clickable(node["name"], nm_col, 13, hover=T.TEXT,
+                           editable=not expandable)
             if expandable:
                 nm.clicked.connect(lambda: card._toggle(node))
             else:
@@ -1135,7 +1168,7 @@ class CategoryRow(QWidget):
                 ie.setFixedWidth(W_AMOUNT)
                 lay.addWidget(ie)
             else:
-                a = Clickable(disp, col, 13, bold=True, hover=col)
+                a = Clickable(disp, col, 13, bold=True, hover=col, editable=True)
                 if not active:
                     a.setToolTip("Not due this month — excluded from P&L")
                 a.clicked.connect(lambda: card._start(node, "amount"))
@@ -2095,7 +2128,10 @@ class RepeatDialog(QDialog):
         b.setStyleSheet(
             f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
             f"border-radius:{T.RADIUS}px; padding:6px 16px;}}"
-            f"QPushButton:hover{{border-color:{fg};}}")
+            f"QPushButton:hover{{border-color:{fg};}}"
+            f"QPushButton:focus{{border-color:{T.FOCUS};}}"   # was missing — match _button
+            f"QPushButton:disabled{{color:{T.TEXT_DIM}; background:transparent;"
+            f"border-color:{T.BORDER_SOFT};}}")
         return b
 
     def _on_days(self):
