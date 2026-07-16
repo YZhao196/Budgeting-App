@@ -11,16 +11,16 @@ import math
 import re
 from datetime import date, timedelta
 
-from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QRectF, QSize, Qt,
-                          QTimer, QVariantAnimation, pyqtSignal)
+from PyQt6.QtCore import (QDate, QEasingCurve, QPointF, QPropertyAnimation, QRectF,
+                          QSize, Qt, QTimer, QVariantAnimation, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QIcon,
                          QLinearGradient, QPainter, QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QCalendarWidget, QCheckBox, QComboBox, QCompleter,
-    QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout,
-    QWidget, QWidgetAction,
+    QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGraphicsOpacityEffect,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,
+    QSpinBox, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 import backend as B
@@ -95,6 +95,24 @@ def _reveal_anim(widget):
         widget.update()
     anim.valueChanged.connect(_tick)
     return anim
+
+
+def _row_fade_in(widget):
+    """Brief opacity fade for a freshly-inserted ledger row — confirms the
+    "+ Add item"/"+ sub-item" click landed somewhere concrete, not a
+    transition meant to be admired: skipped entirely when ANIMATE is off, so
+    --shot never catches a row mid-fade."""
+    if not ANIMATE:
+        return
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setStartValue(0.0); anim.setEndValue(1.0)
+    anim.setDuration(180)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+    widget._insert_anim = anim             # keep a reference alive
+    anim.start()
 
 
 # Manually-set priority -> dot colour (0 = none)
@@ -209,6 +227,37 @@ class BoundedScroll(QScrollArea):
         e.accept()
 
 
+def bounded(inner, max_w=None):
+    """Wrap ``inner`` in a host that holds it to a centred column of ``max_w``.
+
+    The single mechanism behind the app's content column. Without a cap, a 1680px
+    window stretches five ~390px table columns across 1500px and puts a label at
+    x=111 with its own spinbox at x=1520 — which Filipiuk p33 says reads as
+    *unrelated*, the opposite of what a field and its label should read as.
+
+    ``max_w=None`` passes ``inner`` straight through, for surfaces that are
+    already a narrow column (e.g. Overview's fixed 356px right rail).
+
+    The stretch factor on ``inner`` has to dominate the two spacers or they take
+    all the slack and the content renders at its size hint inside the cap. Qt
+    honours maximumWidth first, so ``inner`` grows to ``max_w`` and only the
+    remainder is split between the spacers.
+    """
+    if not max_w:
+        return inner
+    host = QWidget()
+    host.setStyleSheet("background:transparent;")
+    hl = QHBoxLayout(host)
+    hl.setContentsMargins(0, 0, 0, 0)
+    hl.setSpacing(0)
+    inner.setMaximumWidth(max_w)
+    inner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    hl.addStretch(1)
+    hl.addWidget(inner, 1000)
+    hl.addStretch(1)
+    return host
+
+
 def draw_focus_ring(widget, painter=None):
     """Paint a 1px keyboard-focus ring inside a widget's bounds (layout-neutral)."""
     if not widget.hasFocus():
@@ -266,20 +315,36 @@ class Clickable(QLabel):
 #  Sidebar navigation
 # --------------------------------------------------------------------------- #
 class NavButton(QWidget):
+    """A sidebar row: icon + full-width text label, Notion-style.
+
+    Was a 72px-wide stacked icon-over-caption tile whose 9px caption truncated
+    ("Quick start" rendered as "Quick sta…"). Now a horizontal row — icon left,
+    label at FS_BODY beside it — which is what the width is for. In collapsed
+    mode the label is dropped and the tooltip carries the name instead.
+    """
     clicked = pyqtSignal(str)
+
+    H = 32          # Notion's sidebar row height
+    _ICON = 18
 
     def __init__(self, key, icon, text):
         super().__init__()
         self.key, self.icon, self.text = key, icon, text
         self._active = False
         self._hover = False
-        self.setFixedSize(T.SIDEBAR_W, 54)
+        self._collapsed = False
+        self.setFixedHeight(self.H)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.setToolTip(text)
 
     def setActive(self, a):
         self._active = a
+        self.update()
+
+    def setCollapsed(self, c):
+        self._collapsed = c
         self.update()
 
     def enterEvent(self, e): self._hover = True; self.update()
@@ -301,51 +366,66 @@ class NavButton(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self._active:
-            p.setBrush(QColor(T.ACCENT)); p.setPen(Qt.PenStyle.NoPen)
-            p.drawRect(QRectF(0, 14, 3, 26))
-        if self._hover and not self._active:
-            p.setBrush(QColor(T.BG_HOVER)); p.setPen(Qt.PenStyle.NoPen)
-            p.drawRect(QRectF(8, 4, self.width() - 16, 46))
+
+        # Selected/hover is a filled row, not a left tick-mark: with a real text
+        # label the whole row is the target, so the whole row should light up.
+        if self._active or self._hover:
+            p.setBrush(QColor(T.BG_PILL if self._active else T.BG_HOVER))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(T.SP_XS, 0, self.width() - 2 * T.SP_XS,
+                                     self.height()),
+                              T.RADIUS, T.RADIUS)
 
         col = T.TEXT if (self._active or self._hover) else T.TEXT_MUTED
-        isz = 21
+        if self._collapsed:
+            x = (self.width() - self._ICON) / 2
+        else:
+            x = T.SP_M
         icons.draw(p, self.icon,
-                   QRectF((self.width() - isz) / 2, 8, isz, isz), col, 1.7)
-        f = QFont(T.FONT_FAMILY); f.setPixelSize(9); p.setFont(f)
-        p.setPen(QColor(col))
-        p.drawText(QRectF(0, 33, self.width(), 16),
-                   int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
-                   self.text)
+                   QRectF(x, (self.height() - self._ICON) / 2,
+                          self._ICON, self._ICON), col, 1.7)
+
+        if not self._collapsed:
+            f = QFont(T.FONT_FAMILY); f.setPixelSize(T.FS_BODY)
+            f.setBold(self._active)
+            p.setFont(f)
+            p.setPen(QColor(col))
+            tx = T.SP_M + self._ICON + T.SP_S
+            p.drawText(QRectF(tx, 0, self.width() - tx - T.SP_S, self.height()),
+                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                       self.text)
         draw_focus_ring(self, p)
 
 
 class Sidebar(QWidget):
     navigated = pyqtSignal(str)
 
+    # Full words. "Subs" was an abbreviation forced by a 72px rail that no longer
+    # exists, and "Quick start" used to render as "Quick sta…".
     ITEMS = [("overview",      "overview",  "Overview"),
              ("analytics",     "analytics", "Analytics"),
-             ("subscriptions", "subs",      "Subs"),
+             ("subscriptions", "subs",      "Subscriptions"),
              ("goals",         "goals",     "Goals"),
              ("history",       "history",   "History")]
 
     def __init__(self):
         super().__init__()
+        self._collapsed = False
         self.setFixedWidth(T.SIDEBAR_W)
         self.setStyleSheet(f"background:{T.BG_SIDEBAR};")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 12)
-        lay.setSpacing(2)
+        lay.setContentsMargins(T.SP_S, 0, T.SP_S, T.SP_M)
+        lay.setSpacing(1)
         self._lay = lay
 
-        logo = QLabel("$")
+        self.logo = QLabel("$")
         lf = QFont(T.FONT_FAMILY); lf.setPixelSize(22); lf.setBold(True)
-        logo.setFont(lf)
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setFixedHeight(T.HEADER_H)
-        logo.setStyleSheet(f"color:{T.ACCENT}; background:transparent;")
-        lay.addWidget(logo)
-        lay.addSpacing(6)
+        self.logo.setFont(lf)
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.logo.setFixedHeight(T.HEADER_H)
+        self.logo.setStyleSheet(f"color:{T.ACCENT}; background:transparent;")
+        lay.addWidget(self.logo)
+        lay.addSpacing(T.SP_XS)
 
         self.buttons = {}
         for key, ic, text in self.ITEMS:
@@ -355,12 +435,26 @@ class Sidebar(QWidget):
             lay.addWidget(b)
 
         lay.addStretch(1)
+        # Settings is a different kind of destination from the five content
+        # pages, so it sits below a divider rather than in the same run.
+        self._divider = hsep()
+        lay.addWidget(self._divider)
+        lay.addSpacing(T.SP_XS)
         s = NavButton("settings", "settings", "Settings")
         s.clicked.connect(self.navigated.emit)
         self.buttons["settings"] = s
         lay.addWidget(s)
 
         self.setActive("overview")
+
+    def toggle_collapsed(self):
+        """Collapse to an icon-only rail (bound to Ctrl+\\, as in Notion)."""
+        self._collapsed = not self._collapsed
+        self.setFixedWidth(T.SIDEBAR_W_COLLAPSED if self._collapsed else T.SIDEBAR_W)
+        self.logo.setVisible(not self._collapsed)
+        self._divider.setVisible(not self._collapsed)
+        for b in self.buttons.values():
+            b.setCollapsed(self._collapsed)
 
     # Overview and Settings can't be hidden (you need a home and a way back).
     ALWAYS = {"overview", "settings"}
@@ -454,10 +548,12 @@ class MonthPickerPopup(QFrame):
         # Year navigation row
         yr_row = QHBoxLayout(); yr_row.setContentsMargins(0, 0, 0, 0); yr_row.setSpacing(4)
         self._yr_prev = IconButton("chevron_left", 22, 11)
+        self._yr_prev.setToolTip("Previous year")
         self._yr_prev.clicked.connect(lambda: self._shift_year(-1))
         self._yr_lbl = label("", T.TEXT, 12, bold=True)
         self._yr_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._yr_next = IconButton("chevron_right", 22, 11)
+        self._yr_next.setToolTip("Next year")
         self._yr_next.clicked.connect(lambda: self._shift_year(1))
         yr_row.addWidget(self._yr_prev)
         yr_row.addStretch(1)
@@ -549,6 +645,7 @@ class MonthNav(QWidget):
         today_btn.setToolTip("Go to today")
         today_btn.clicked.connect(self.today.emit)
         bl = IconButton("chevron_left", 26, 12)
+        bl.setToolTip("Previous period")
         bl.clicked.connect(self.prev.emit)
 
         self.lbl = QPushButton("—")
@@ -560,6 +657,7 @@ class MonthNav(QWidget):
         self.lbl.clicked.connect(self._show_picker)
 
         br = IconButton("chevron_right", 26, 12)
+        br.setToolTip("Next period")
         br.clicked.connect(self.next.emit)
 
         lay.addWidget(today_btn); lay.addWidget(bl)
@@ -605,10 +703,17 @@ class TopBar(QWidget):
         self.setFixedHeight(T.HEADER_H)
         self.setStyleSheet(
             f"background:{T.BG_HEADER}; border-bottom:1px solid {T.BORDER_SOFT};")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(22, 0, 18, 0)
+        # The header's contents ride the same centred column as the page body, so
+        # the title lands on the content's left edge and the search button on its
+        # right edge instead of floating against the window frame while the body
+        # sits 170px inboard of them.
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
 
-        self.title = label("Overview", T.TEXT, 16, bold=True)
+        self.title = label("Overview", T.TEXT, T.FS_HEAD, bold=True)
         self.modebar = SegTabBar(["Month", "Week"], 0, kind="pill")
         self.modebar.changed.connect(lambda m: self.mode_changed.emit(m.lower()))
         self.nav = MonthNav()
@@ -631,6 +736,7 @@ class TopBar(QWidget):
         lay.addWidget(center)
         lay.addStretch(1)
         lay.addWidget(self.search_btn)
+        outer.addWidget(bounded(row, T.CONTENT_MAX_W))
 
     def set_controls_visible(self, mode: bool, nav: bool):
         """Show/hide the Month|Week pill and the date navigation arrow block."""
@@ -822,13 +928,14 @@ class CategoryRow(QWidget):
     - Parent name click → expand/collapse children.
     - Leaf name and amount are click-to-edit inline.
     - Due date always clickable (calendar picker).
-    - ✕ delete always visible; + add-child revealed on hover.
+    - ✕ delete and + add-child always visible (dim at rest, brighten on
+      direct hover) — not hidden until the row is moused over, so the
+      affordance is discoverable at a glance.
     """
     def __init__(self, card, node, kind, depth=0, active=True):
         super().__init__()
         self.card = card
         self.node = node
-        self._hover_widgets = []
         self._pcell = None
         self.setObjectName("Row")
         self.setFixedHeight(ROW_H)
@@ -851,12 +958,14 @@ class CategoryRow(QWidget):
         # ── left "+" : add an indented sub-item (revealed on hover) ───── #
         plus_cell = QWidget(); plus_cell.setFixedWidth(PLUS_W)
         pcl = QHBoxLayout(plus_cell); pcl.setContentsMargins(0, 0, 0, 0); pcl.setSpacing(0)
+        # Always visible (dim) rather than hover-only: a fully-invisible-until-
+        # moused-over affordance has no static hint it exists (polish review,
+        # 2026-07) — Clickable's own enterEvent still brightens it on direct
+        # hover, so it stays subtle at rest without being undiscoverable.
         add_sub = Clickable("+", T.TEXT_DIM, 15, hover=T.ACCENT)
         add_sub.setToolTip("Add sub-item")
         add_sub.clicked.connect(lambda: card._add_child(node))
         pcl.addWidget(add_sub)
-        add_sub.setVisible(False)
-        self._hover_widgets.append(add_sub)
         lay.addWidget(plus_cell)
 
         # ── chevron ──────────────────────────────────────────────────── #
@@ -895,9 +1004,6 @@ class CategoryRow(QWidget):
                     or "Set recurrence")
                 rc.clicked.connect(lambda: card._open_repeat(node))
                 lay.addWidget(rc)
-                if not on:
-                    rc.setVisible(False)
-                    self._hover_widgets.append(rc)
             # tag chips (click to filter) + edit affordance (revealed on hover)
             for t in (node.get("tags") or [])[:4]:
                 lay.addWidget(tag_chip(t, on_click=lambda t=t: card._filter_tag(t)))
@@ -905,18 +1011,13 @@ class CategoryRow(QWidget):
             tg.setToolTip("Edit tags")
             tg.clicked.connect(lambda: card._open_tags(node))
             lay.addWidget(tg)
-            tg.setVisible(False)
-            self._hover_widgets.append(tg)
-            # note affordance — shown always if a note exists, else on hover
+            # note affordance — brighter (T.ACCENT) once a note exists, dim otherwise
             if leaf:
                 has_note = bool((node.get("note") or "").strip())
                 nt = Clickable("✎", T.ACCENT if has_note else T.TEXT_DIM, 12, hover=T.ACCENT)
                 nt.setToolTip(node.get("note") if has_note else "Add note")
                 nt.clicked.connect(lambda: card._open_note(node))
                 lay.addWidget(nt)
-                if not has_note:
-                    nt.setVisible(False)
-                    self._hover_widgets.append(nt)
             lay.addStretch(1)
 
         # ── amount (parents show whitespace — value lives in children) ── #
@@ -990,14 +1091,10 @@ class CategoryRow(QWidget):
         lay.addWidget(act)
 
     def enterEvent(self, e):
-        for b in self._hover_widgets:
-            b.setVisible(True)
         if self._pcell:
             self._pcell.set_hover(True)
 
     def leaveEvent(self, e):
-        for b in self._hover_widgets:
-            b.setVisible(False)
         if self._pcell:
             self._pcell.set_hover(False)
 
@@ -1017,12 +1114,19 @@ class LedgerCard(QFrame):
         self._editing = None                 # (node_id, field) or None
         self.store = None                    # ItemStore — when set, edits persist there
         self.tag_filter = None               # show only rows carrying this tag
+        self._just_added_id = None           # node id to fade in on next rebuild
 
         self.setObjectName("Card")
+        # Fill and surrounding border dropped with every other block; the 2px top
+        # rule stays because here it is *functional*, not decorative — green vs
+        # red is the income/expense distinction this card exists to make, the
+        # same signal as the ▲/▼ and the sign on every amount below it. That's
+        # the opposite of the T.ACCENT rule removed from card(), which used the
+        # income colour to mean "important" and landed above an expense chart.
         accent = T.GREEN if kind == "income" else T.RED
         self.setStyleSheet(
-            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
-            f"border-top:2px solid {accent}; border-radius:0px;}}")
+            f"#Card{{background:transparent; border:none;"
+            f"border-top:2px solid {accent};}}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 14, 0, 8)
@@ -1228,7 +1332,11 @@ class LedgerCard(QFrame):
                       self.currency))
 
     def _add_row(self, node, depth, active=True):
-        self.list_box.addWidget(CategoryRow(self, node, self.kind, depth, active))
+        row = CategoryRow(self, node, self.kind, depth, active)
+        self.list_box.addWidget(row)
+        if self._just_added_id is not None and node.get("id") == self._just_added_id:
+            _row_fade_in(row)
+            self._just_added_id = None
 
     # -- search navigation: scroll to + call out a specific row ----------- #
     def _find_row_widget(self, node_id):
@@ -1288,7 +1396,7 @@ class LedgerCard(QFrame):
         menu = QMenu(self)
         menu.setStyleSheet(
             f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
-            f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:0px;}}"
+            f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:{T.RADIUS}px;}}"
             f"QMenu::item:selected{{background:{T.BG_HOVER};}}"
             f"QMenu::separator{{height:1px; background:{T.BORDER}; margin:4px 2px;}}")
         parents = [n for n in self.nodes() if n.get("children")]
@@ -1433,7 +1541,7 @@ class LedgerCard(QFrame):
         m = QMenu(self)
         m.setStyleSheet(
             f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
-            f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:0px;}}"
+            f"padding:6px;}} QMenu::item{{padding:6px 18px; border-radius:{T.RADIUS}px;}}"
             f"QMenu::item:selected{{background:{T.BG_HOVER};}}"
             f"QMenu::separator{{height:1px; background:{T.BORDER}; margin:4px 2px;}}")
         cal = QCalendarWidget()
@@ -1507,10 +1615,12 @@ class LedgerCard(QFrame):
         if self.store:
             defn = self.store.add_top(self._item_type(), self._range_start_iso())
             self._editing = (defn["id"], "name")
+            self._just_added_id = defn["id"]
             self.changed.emit(); return
         node = self._new_node()
         self.nodes().append(node)
         self._editing = (node["id"], "name")
+        self._just_added_id = node["id"]
         self.rebuild(); self.changed.emit()
 
     def _add_child(self, parent):
@@ -1519,18 +1629,20 @@ class LedgerCard(QFrame):
                                          self._range_start_iso())
             if child:
                 self._editing = (child["id"], "name")
+                self._just_added_id = child["id"]
             self.changed.emit(); return
         node = self._new_node()
         parent.setdefault("children", []).append(node)
         parent["expanded"] = True
         self._editing = (node["id"], "name")
+        self._just_added_id = node["id"]
         self.rebuild(); self.changed.emit()
 
     def _open_priority(self, node, pos):
         m = QMenu(self)
         m.setStyleSheet(
             f"QMenu{{background:{T.BG_CARD}; border:1px solid {T.BORDER_LIGHT};"
-            f"padding:5px;}} QMenu::item{{padding:6px 24px 6px 8px; border-radius:0px;}}"
+            f"padding:5px;}} QMenu::item{{padding:6px 24px 6px 8px; border-radius:{T.RADIUS}px;}}"
             f"QMenu::item:selected{{background:{T.BG_HOVER};}}")
         cur = node.get("priority", 0) or 0
         for val in (1, 2, 3, 0):
@@ -1662,7 +1774,7 @@ def _calendar_qss():
     QCalendarWidget QWidget#qt_calendar_navigationbar {{ background:{T.BG_CARD_SOFT}; }}
     QCalendarWidget QToolButton {{
         background:transparent; color:{T.TEXT}; border:none;
-        padding:3px 8px; border-radius:0px; }}
+        padding:3px 8px; border-radius:{T.RADIUS}px; }}
     QCalendarWidget QToolButton:hover {{ background:{T.BG_HOVER}; }}
     QCalendarWidget QToolButton::menu-indicator {{ image:none; }}
     QCalendarWidget QSpinBox {{
@@ -1716,7 +1828,7 @@ class WeekdayChips(QWidget):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
-                f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
+                f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; font-size:11px;}}"
                 f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
                 f"border-color:{T.ACCENT};}}")
             b.clicked.connect(lambda _=False, wd=i: self._pick(wd))
@@ -1804,7 +1916,7 @@ class RepeatDialog(QDialog):
             b.setFixedSize(30, 24); b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
-                f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
+                f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; font-size:11px;}}"
                 f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
                 f"border-color:{T.ACCENT};}}")
             self.day_btns[d] = b
@@ -1838,7 +1950,7 @@ class RepeatDialog(QDialog):
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(
             f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
-            f"border:1px solid {T.BORDER}; border-radius:0px; padding:5px 12px;}}"
+            f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; padding:5px 12px;}}"
             f"QPushButton:checked{{background:{T.GREEN_BG}; color:{T.GREEN};"
             f"border-color:{T.GREEN_BORDER};}}")
         b.clicked.connect(cb)
@@ -1848,7 +1960,7 @@ class RepeatDialog(QDialog):
         b = QPushButton(text); b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(
             f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
-            f"border-radius:0px; padding:6px 16px;}}"
+            f"border-radius:{T.RADIUS}px; padding:6px 16px;}}"
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
 
@@ -1954,7 +2066,7 @@ class TagDialog(QDialog):
         b = QPushButton(text); b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(
             f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
-            f"border-radius:0px; padding:6px 14px;}}"
+            f"border-radius:{T.RADIUS}px; padding:6px 14px;}}"
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
 
@@ -1975,6 +2087,7 @@ class TagDialog(QDialog):
         nm.setToolTip("Click to rename")
         nm.clicked.connect(lambda _=False, t=text: self._edit(t))
         x = Clickable("×", T.TEXT_DIM, 12, hover=T.RED)
+        x.setToolTip("Remove tag")
         x.clicked.connect(lambda _=False, t=text: self._remove(t))
         h.addWidget(nm); h.addWidget(x)
         return w
@@ -2008,6 +2121,103 @@ class TagDialog(QDialog):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return (False, None)
         return (True, dlg._result)
+
+
+class CommandPalette(QDialog):
+    """Ctrl+K command palette — fuzzy-filter a flat list of actions, Enter runs.
+
+    Every action in here was already reachable by mouse; the palette is purely an
+    accelerator, which is what Nielsen heuristic #7 asks for ("shortcuts — hidden
+    from novice users — may speed up the interaction for the expert user",
+    Henderson p80) and what Henderson p115 lists as the payoff of hotkeys. This
+    app's only user is an expert user, so the heuristic most specific to it was
+    also the one it scored worst on.
+
+    Actions are ``(label, hint, callable)``. The filter matches the label and hint
+    as a subsequence, so "jan" finds "Jump to month: January" and "imp" finds
+    "Import bank file…".
+    """
+
+    def __init__(self, parent, actions):
+        super().__init__(parent)
+        self.setWindowTitle("Command palette")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setMinimumWidth(520)
+        self._actions = actions
+        self._picked = False
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(T.SP_L, T.SP_M, T.SP_L, T.SP_M)
+        lay.setSpacing(T.SP_S)
+
+        self.box = QLineEdit()
+        self.box.setPlaceholderText("Type a command…")
+        self.box.setStyleSheet(
+            f"background:{T.BG_INPUT}; color:{T.TEXT};"
+            f"border:1px solid {T.BORDER_LIGHT}; border-radius:{T.RADIUS}px;"
+            f"padding:7px 9px; font-size:{T.FS_BODY}px;")
+        self.box.textChanged.connect(self._refresh)
+        self.box.returnPressed.connect(self._activate_first)
+        lay.addWidget(self.box)
+
+        self.results = QListWidget()
+        self.results.setStyleSheet(
+            f"QListWidget{{background:transparent; color:{T.TEXT};"
+            f"border:none; outline:none;}}"
+            f"QListWidget::item{{padding:6px 8px; border-radius:{T.RADIUS}px;}}"
+            f"QListWidget::item:selected{{background:{T.BG_HOVER}; color:{T.TEXT};}}")
+        self.results.setMinimumHeight(320)
+        self.results.itemClicked.connect(self._pick)
+        self.results.itemActivated.connect(self._pick)
+        lay.addWidget(self.results)
+
+        self._refresh("")
+        self.box.setFocus()
+
+    @staticmethod
+    def _matches(needle: str, hay: str) -> bool:
+        """Subsequence match: every char of `needle` appears in `hay`, in order."""
+        it = iter(hay.lower())
+        return all(c in it for c in needle.lower())
+
+    def _refresh(self, text=""):
+        self.results.clear()
+        q = (text or "").strip()
+        for label_, hint, _fn in self._actions:
+            if q and not (self._matches(q, label_) or self._matches(q, hint)):
+                continue
+            it = QListWidgetItem(f"{label_}    ·    {hint}" if hint else label_)
+            it.setData(Qt.ItemDataRole.UserRole, label_)
+            self.results.addItem(it)
+        if self.results.count():
+            self.results.setCurrentRow(0)
+
+    def _activate_first(self):
+        it = self.results.currentItem() or (
+            self.results.item(0) if self.results.count() else None)
+        if it:
+            self._pick(it)
+
+    def _pick(self, item):
+        if self._picked:                     # Enter can arrive twice (returnPressed
+            return                           # + itemActivated) — run the action once
+        key = item.data(Qt.ItemDataRole.UserRole)
+        for label_, _hint, fn in self._actions:
+            if label_ == key:
+                self._picked = True
+                self.accept()
+                fn()
+                return
+
+    def keyPressEvent(self, e):
+        # Down/Up move through results while focus stays in the text box, so you
+        # never have to Tab out of it to choose.
+        if e.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self.results.count():
+            row = self.results.currentRow()
+            row += 1 if e.key() == Qt.Key.Key_Down else -1
+            self.results.setCurrentRow(max(0, min(self.results.count() - 1, row)))
+            return
+        super().keyPressEvent(e)
 
 
 class SearchDialog(QDialog):
@@ -2103,7 +2313,7 @@ class NoteDialog(QDialog):
         b = QPushButton(text); b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(
             f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
-            f"border-radius:0px; padding:6px 14px;}}"
+            f"border-radius:{T.RADIUS}px; padding:6px 14px;}}"
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
 
@@ -2131,7 +2341,7 @@ class DateField(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT};"
-            f"border:1px solid {T.BORDER_LIGHT}; border-radius:0px;"
+            f"border:1px solid {T.BORDER_LIGHT}; border-radius:{T.RADIUS}px;"
             f"padding:6px 10px; text-align:left;}}"
             f"QPushButton:hover{{border-color:{T.GREEN_BORDER};}}")
         self.clicked.connect(self._open)
@@ -2213,7 +2423,7 @@ class PersonDialog(QDialog):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
-                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"{border}; border-radius:{T.RADIUS}px; padding:6px 14px;}}"
                 f"QPushButton:hover{{border-color:{fg};}}")
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self._save)
@@ -2301,7 +2511,7 @@ class AccountDialog(QDialog):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
-                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"{border}; border-radius:{T.RADIUS}px; padding:6px 14px;}}"
                 f"QPushButton:hover{{border-color:{fg};}}")
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self._save)
@@ -2413,7 +2623,7 @@ class TrackerItemDialog(QDialog):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
-                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"{border}; border-radius:{T.RADIUS}px; padding:6px 14px;}}"
                 f"QPushButton:hover{{border-color:{fg};}}")
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self._save)
@@ -2500,7 +2710,7 @@ class BudgetDialog(QDialog):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
-                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"{border}; border-radius:{T.RADIUS}px; padding:6px 14px;}}"
                 f"QPushButton:hover{{border-color:{fg};}}")
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self._save)
@@ -2577,7 +2787,7 @@ class TransactionReviewDialog(QDialog):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{bg}; color:{fg}; border:1px solid "
-                f"{border}; border-radius:0px; padding:6px 14px;}}"
+                f"{border}; border-radius:{T.RADIUS}px; padding:6px 14px;}}"
                 f"QPushButton:hover{{border-color:{fg};}}")
         close.clicked.connect(self.reject)
         save.clicked.connect(self._save)
@@ -2720,7 +2930,7 @@ class SharedPlanDialog(QDialog):
             b.setFixedSize(30, 24); b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{background:{T.BG_INPUT}; color:{T.TEXT_MUTED};"
-                f"border:1px solid {T.BORDER}; border-radius:0px; font-size:11px;}}"
+                f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; font-size:11px;}}"
                 f"QPushButton:checked{{background:{T.ACCENT}; color:{T.ON_ACCENT};"
                 f"border-color:{T.ACCENT};}}")
             b.clicked.connect(self._sync)
@@ -2796,7 +3006,7 @@ class SharedPlanDialog(QDialog):
         b = QPushButton(text); b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(
             f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
-            f"border-radius:0px; padding:6px 14px;}}"
+            f"border-radius:{T.RADIUS}px; padding:6px 14px;}}"
             f"QPushButton:hover{{border-color:{fg};}}")
         return b
 
@@ -3082,11 +3292,12 @@ class SummaryCard(QFrame):
         self.week_of_month: int | None = None
         self.range_doc = None       # set in week/range lens → headline shows range P&L
         self.currency = doc.get("currency", "$")
+        self._hero_value = 0.0      # currently-displayed number, for count animation
+        self._hero_anim = None
 
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT};"
-            f"border-radius:{T.RADIUS}px;}}")
+            f"#Card{{background:transparent; border:none;}}")
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14); root.setSpacing(0)
 
@@ -3266,10 +3477,10 @@ class SummaryCard(QFrame):
             s = B.period_summary(self.dm, self.year, self.month, self.period, wom)
             self.caption.setText(f"{self.period} P&L — "
                                  f"{dm.MONTH_NAMES[self.month]} {self.year}")
-        self.hero.setText(money(s["pnl"], cur))
         self.hero.setStyleSheet(
             f"color:{T.GREEN_BRIGHT if s['pnl'] >= 0 else T.RED};"
             f"background:transparent;")
+        self._animate_hero(s["pnl"], cur)
 
         self._refresh_bills(range_mode)
 
@@ -3388,6 +3599,29 @@ class SummaryCard(QFrame):
             hrow.addWidget(label(money(wk_pnl, cur), pnl_col, 12, bold=active))
             self.budget_box.addLayout(hrow)
 
+    def _animate_hero(self, target, cur):
+        """Count the hero P&L number from its old value to the new one
+        instead of snapping — draws the eye to the one number this whole
+        page exists to answer ("numbers lead", PRODUCT.md), more directly
+        than animating chrome around it would."""
+        start = self._hero_value
+        if not ANIMATE or abs(target - start) < 0.005:
+            self._hero_value = target
+            self.hero.setText(money(target, cur))
+            return
+        if self._hero_anim:
+            self._hero_anim.stop()
+        anim = QVariantAnimation(self)
+        anim.setStartValue(float(start)); anim.setEndValue(float(target))
+        anim.setDuration(280)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        def _tick(v):
+            self._hero_value = float(v)
+            self.hero.setText(money(float(v), cur))
+        anim.valueChanged.connect(_tick)
+        self._hero_anim = anim
+        anim.start()
 
 
 # --------------------------------------------------------------------------- #
@@ -3517,8 +3751,7 @@ class ChartCard(QFrame):
         self.dm = manager
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT};"
-            f"border-radius:{T.RADIUS}px;}}")
+            f"#Card{{background:transparent; border:none;}}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(8)
         lay.addWidget(label("P&L — Last 5 months", T.TEXT_MUTED, 11))
@@ -3542,8 +3775,7 @@ class PredictedIncomeCard(QFrame):
         self.store = store
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT};"
-            f"border-radius:{T.RADIUS}px;}}")
+            f"#Card{{background:transparent; border:none;}}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(6)
 
@@ -4173,6 +4405,8 @@ class FanChart(QWidget):
         self.currency = "$"
         self._geo = []                      # [(x, y, label, value, lo, hi)]
         self._hover = None
+        self._reveal = 1.0
+        self._anim = None
         self.setMouseTracking(True)
         self.setMinimumHeight(180)
 
@@ -4181,6 +4415,10 @@ class FanChart(QWidget):
         self.band = band
         self.currency = currency
         self._hover = None
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
         self.update()
 
     def mouseMoveEvent(self, e):
@@ -4200,6 +4438,7 @@ class FanChart(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self._reveal)
         if not self.history and not self.band:
             draw_empty(p, self.rect(), "No accounts to forecast — add one in Settings")
             return
@@ -4314,6 +4553,8 @@ class AreaChart(QWidget):
         self.currency = "$"
         self._geo = []
         self._hover = None
+        self._reveal = 1.0
+        self._anim = None
         self.setMouseTracking(True)
         self.setMinimumHeight(180)
 
@@ -4321,6 +4562,10 @@ class AreaChart(QWidget):
         self.series = series
         self.currency = currency
         self._hover = None
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
         self.update()
 
     def mouseMoveEvent(self, e):
@@ -4340,6 +4585,7 @@ class AreaChart(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self._reveal)
         if not self.series:
             draw_empty(p, self.rect(), "No net-worth history yet")
             return
@@ -4425,6 +4671,8 @@ class SubscriptionTimeline(QWidget):
         self.currency = "$"
         self._geo = []                  # [(cx, cy, r, item)]
         self._hover = -1
+        self._reveal = 1.0
+        self._anim = None
         self.setMouseTracking(True)
         self.setMinimumHeight(110)
 
@@ -4433,6 +4681,10 @@ class SubscriptionTimeline(QWidget):
         self.days = days
         self.currency = currency
         self._hover = -1
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
         self.update()
 
     def mouseMoveEvent(self, e):
@@ -4453,6 +4705,7 @@ class SubscriptionTimeline(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self._reveal)
         if not self.items:
             draw_empty(p, self.rect(), "No renewals in the next 60 days")
             return
@@ -4518,6 +4771,8 @@ class LineChart(QWidget):
         self._geo = []
         self._hover = None
         self._selected: int | None = None
+        self._reveal = 1.0
+        self._anim = None
         self.setMouseTracking(True)
         self.setMinimumHeight(160)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4532,6 +4787,10 @@ class LineChart(QWidget):
         if color:
             self.color = color
         self._selected = None
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
         self.update()
 
     def set_selected(self, idx: int | None):
@@ -4572,6 +4831,7 @@ class LineChart(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self._reveal)
         pad_l, pad_r, pad_t, pad_b = 44, 14, 12, 24
         plot = QRectF(pad_l, pad_t, self.width() - pad_l - pad_r,
                       self.height() - pad_t - pad_b)
@@ -4667,6 +4927,8 @@ class DonutChart(QWidget):
         self.center_sub = ""
         self.hole_bg = hole_bg
         self._hover = -1
+        self._reveal = 1.0
+        self._anim = None
         self.setMinimumSize(160, 160)
         self.setMouseTracking(True)
 
@@ -4676,6 +4938,10 @@ class DonutChart(QWidget):
         self.center_top = center_top
         self.center_sub = center_sub
         self._hover = -1
+        self._anim = _reveal_anim(self)
+        if self._anim:
+            self._reveal = 0.0
+            self._anim.start()
         self.update()
 
     def set_hover(self, idx: int):
@@ -4724,6 +4990,7 @@ class DonutChart(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self._reveal)
         total = sum(v for v, _ in self.segments) or 1
         side = min(self.width(), self.height()) - 8
         rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2,
@@ -4772,16 +5039,20 @@ class DonutChart(QWidget):
 
 
 class MetricTile(QFrame):
-    """Small caption-over-value summary tile."""
+    """Small caption-over-value summary tile.
+
+    Chrome-free, like every other block: the caption/value pair and the gap to
+    the next tile are enough to group it. It used to carry a BG_CARD_SOFT fill
+    *and* a border, which made it one more equally-weighted box on a page that
+    was already nothing but boxes (Filipiuk p35 — figure-ground).
+    """
     def __init__(self, caption, value="", color=T.TEXT):
         super().__init__()
-        self.setStyleSheet(
-            f"QFrame{{background:{T.BG_CARD_SOFT}; border:1px solid {T.BORDER_SOFT};"
-            f"border-radius:0px;}}")
+        self.setStyleSheet("QFrame{background:transparent; border:none;}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(13, 10, 13, 11); lay.setSpacing(3)
-        lay.addWidget(label(caption, T.TEXT_MUTED, 11))
-        self.value = label(value, color, 19, bold=True)
+        lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(T.SP_XS)
+        lay.addWidget(label(caption, T.TEXT_MUTED, T.FS_MICRO))
+        self.value = label(value, color, T.FS_METRIC, bold=True)
         lay.addWidget(self.value)
         self._spark: Sparkline | None = None
 
@@ -4954,7 +5225,7 @@ class GoalDialog(QDialog):
         bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
         bb.setStyleSheet(
             f"QPushButton{{background:{T.BG_INPUT}; border:1px solid {T.BORDER};"
-            f"border-radius:0px; padding:6px 16px; color:{T.TEXT};}}"
+            f"border-radius:{T.RADIUS}px; padding:6px 16px; color:{T.TEXT};}}"
             f"QPushButton:hover{{border-color:{T.BORDER_LIGHT};}}")
         lay.addSpacing(4); lay.addWidget(bb)
 
@@ -4992,8 +5263,7 @@ class GoalsBar(QFrame):
         self.dm = manager
         self.setObjectName("GoalsBar")
         self.setStyleSheet(
-            f"#GoalsBar{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT};"
-            f"border-radius:{T.RADIUS}px;}}")
+            f"#GoalsBar{{background:transparent; border:none;}}")
         self.setFixedHeight(120)
 
         outer = QHBoxLayout(self)

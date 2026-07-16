@@ -1,6 +1,13 @@
 """Central design tokens: colour palette, sizing, fonts and the global stylesheet.
 
-Flat, sharp dark theme. Functional colour for income/expenses; no gradients.
+Dark theme, Notion-derived structure. Functional colour for income/expenses.
+
+Layout follows Notion's model rather than a bordered-card model: content lives in
+a bounded, centred column (CONTENT_MAX_W) so a label and its value stay near each
+other (Filipiuk p33 — proximity *is* grouping); surfaces carry no border or fill
+by default and earn a background only on hover, so the background can actually
+read as background (Filipiuk p35 — figure-ground). Spacing comes from the SPACE
+scale, never ad-hoc numbers (Filipiuk p50-52 — soft 8pt grid).
 """
 
 # --------------------------------------------------------------------------- #
@@ -12,28 +19,48 @@ BG_HEADER     = "#181818"   # top bar
 BG_CARD       = "#1e1e1e"   # panels / cards
 BG_CARD_SOFT  = "#242424"   # nested rows, sub-boxes, tiles
 BG_HOVER      = "#2c2c2c"   # row / button hover
-BG_INPUT      = "#0e0e0e"   # editable fields
+BG_INPUT      = "#1e1e1e"   # editable fields — LIGHTER than BG_APP, not darker.
+                            # Was #0e0e0e, which read as a recessed well against
+                            # the old #1e1e1e card fill. Blocks are transparent
+                            # now, so fields sit on BG_APP (#111111) instead and
+                            # #0e0e0e against it is 1.02:1 — literally invisible.
+                            # Notion does the same thing in reverse (#f7f7f5 on
+                            # white): a field is lighter than its page, not darker.
 BG_PILL       = "#303030"   # active segmented-button background
 
 BORDER        = "#2c2c2c"   # default hairline border
 BORDER_SOFT   = "#202020"   # subtle divider
-BORDER_LIGHT  = "#383838"   # raised / focused border
+BORDER_LIGHT  = "#454545"   # raised border / input boundary
+                            # No flat grey reaches WCAG 1.4.11's 3:1 against
+                            # BG_APP without looking like a light-mode escapee
+                            # (#5a5a5a is still only 2.74:1), so a field's
+                            # boundary is carried by fill AND border together
+                            # (1.13:1 + 1.97:1) rather than either alone.
 
-TEXT          = "#d4d4d4"   # primary text
-TEXT_MUTED    = "#9a9a9a"   # secondary / labels (>= 4.5:1 on cards)
-TEXT_DIM      = "#8a8a8a"   # tertiary (dates, hints)
+TEXT          = "#d4d4d4"   # primary text                    (11.25:1 on BG_CARD)
+TEXT_MUTED    = "#9a9a9a"   # secondary / labels               (5.92:1 on BG_CARD)
+TEXT_DIM      = "#909090"   # tertiary (dates, hints)          (4.86:1 on BG_CARD_SOFT)
+                            # was #8a8a8a — 4.50:1 on BG_CARD_SOFT sat exactly on
+                            # the AA bar with no margin; nudged up so the tightest
+                            # surface pairing still clears it.
 
-GREEN         = "#5da876"   # income / positive (muted sage green)
-GREEN_BRIGHT  = "#74c490"   # hero P&L number
+GREEN         = "#5da876"   # income / positive (muted sage)    (5.82:1 on BG_CARD)
+GREEN_BRIGHT  = "#74c490"   # hero P&L number                   (7.97:1 on BG_CARD)
 GREEN_BG      = "#192219"   # "Incoming" stat box fill
 GREEN_BORDER  = "#243824"
 
-RED           = "#b86060"   # expense / negative (muted terracotta)
-RED_BRIGHT    = "#d07878"
+RED           = "#cc7676"   # expense / negative (muted terracotta)
+                            # 5.10:1 on BG_CARD, 4.75:1 on BG_CARD_SOFT. Was
+                            # #b86060 at 3.87:1 — used for every expense amount at
+                            # 13px bold, which is *not* WCAG "large text" (needs
+                            # >=18.66px, or >=14px bold), so the 4.5:1 body bar
+                            # applied and it missed. Lifted until it clears on
+                            # every surface it actually lands on.
+RED_BRIGHT    = "#e08c8c"   # hover / emphasis                  (6.59:1 on BG_CARD)
 RED_BG        = "#221818"   # "Outgoing" stat box fill
 RED_BORDER    = "#382424"
 
-AMBER         = "#c8944a"   # warnings / due-soon
+AMBER         = "#c8944a"   # warnings / due-soon               (6.18:1 on BG_CARD)
 
 # Categorical series for donut / breakdown / composition charts (8 distinct
 # steps). None of these may equal GREEN/RED/AMBER below — those are reserved
@@ -76,20 +103,70 @@ DOT_OK        = "#5da876"   # green – settled / fine
 
 ACCENT        = GREEN       # "#5da876"
 ON_ACCENT     = "#0d1a10"   # text placed on top of ACCENT fills
-FOCUS         = "#74c490"   # keyboard-focus ring
+
+FOCUS         = "#2f8ae5"   # keyboard-focus ring — system blue, deliberately a
+                            # hue no data value uses. Previously #74c490, i.e. the
+                            # *same hex* as GREEN_BRIGHT (the hero P&L colour): a
+                            # focus indicator and "the single most important number
+                            # on the page" rendered identically, so neither signal
+                            # meant anything on its own. Checked against SERIES
+                            # below: nearest categorical colour is 68.7 in RGB
+                            # distance, so it can't be read as a category either.
+                            # 4.67:1 on BG_CARD — clears AA as text, and clears the
+                            # 3:1 non-text bar for the ring itself.
 
 # --------------------------------------------------------------------------- #
-#  Sizing  (squared — zero corner radius everywhere)
+#  Spacing scale  (Filipiuk p50-52: soft 8pt grid)
 # --------------------------------------------------------------------------- #
-SIDEBAR_W   = 72
-HEADER_H    = 56
-RADIUS      = 0
-RADIUS_SM   = 0
-GAP         = 14            # gutter between the three main columns
-GAP_SECTION = 28            # extra breathing room between distinct topic
-                            # clusters on a long page (e.g. Analytics) — a
-                            # visual "paragraph break" uniform spacing can't
-                            # provide on its own
+# A *soft* grid, not a hard one: element dimensions are free, but every gap and
+# margin comes from this scale. Before this existed the app used setSpacing values
+# of 0/1/4/6/8/10/14/18/20 and margins of (18,14,18,14), (20,16,20,18),
+# (10,12,10,10) — numbers that felt right individually and read as slightly-off
+# collectively. Prefer the names over raw ints at call sites.
+SPACE = [4, 8, 12, 16, 24, 32, 48]
+SP_XS, SP_S, SP_M, SP_L, SP_XL, SP_2XL, SP_3XL = SPACE
+
+# --------------------------------------------------------------------------- #
+#  Type scale
+# --------------------------------------------------------------------------- #
+# Five steps, each a visible jump (ratios 1.27 / 1.14 / 1.25 / 1.5). The previous
+# scale ran 9/10/11/12/13/14/15px — seven steps at ~1.1, which is below the
+# just-noticeable-difference threshold, so 12px next to 13px read as
+# inconsistency rather than hierarchy.
+#
+# FS_METRIC exists because a numbers-first tool genuinely needs a step between
+# body and hero: a stat tile's value is not body text and not the page's answer.
+# Collapsing it into either would be a scale that's tidy on paper and wrong on
+# screen.
+FS_MICRO  = 11              # column captions, hints, timestamps
+FS_BODY   = 14              # body text, ledger rows, data
+FS_HEAD   = 16              # block headings
+FS_METRIC = 20              # stat-tile values
+FS_HERO   = 30              # the one number a page exists to answer
+
+# --------------------------------------------------------------------------- #
+#  Sizing
+# --------------------------------------------------------------------------- #
+SIDEBAR_W           = 240   # was 72 — an icon rail whose 9px captions truncated
+                            # ("Quick start" rendered as "Quick sta…")
+SIDEBAR_W_COLLAPSED = 48    # icon-only, toggled with "["
+HEADER_H            = 56
+RADIUS              = 3     # was 0
+RADIUS_SM           = 3
+
+CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390px
+                            # columns across 1500px and put a label at x=111 with
+                            # its own spinbox at x=1520. Filipiuk p33: elements far
+                            # apart read as *unrelated*, which is exactly wrong for
+                            # a field and its label. The ~580px this "wastes" is
+                            # answered by Filipiuk p229 — negative space is what
+                            # creates focus; "it looks plain" is not a reason to
+                            # fill it.
+
+GAP         = SP_M          # gutter between the three main columns
+GAP_SECTION = SP_2XL        # visual "paragraph break" between topic clusters
+BLOCK_GAP   = SP_2XL        # bottom margin under a block (replaces card borders
+                            # as the grouping mechanism)
 
 WIN_W       = 1680
 WIN_H       = 980
@@ -138,8 +215,8 @@ def global_qss() -> str:
     QDialog {{ background: {BG_CARD}; }}
     QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {{
         background: {BG_INPUT};
-        border: 1px solid {BORDER};
-        border-radius: 0px;
+        border: 1px solid {BORDER_LIGHT};
+        border-radius: {RADIUS}px;
         padding: 6px 9px;
         selection-background-color: {GREEN};
         selection-color: {ON_ACCENT};
@@ -148,6 +225,18 @@ def global_qss() -> str:
     QDoubleSpinBox:focus, QSpinBox:focus {{
         border: 1px solid {FOCUS};
     }}
+    /* Global fallback focus indicator: outline:none above (for the custom-
+       painted widgets that draw their own ring via draw_focus_ring) also
+       suppresses Qt's native focus rectangle on every ordinary QPushButton/
+       QCheckBox in the app — without this, a keyboard-focused button or
+       checkbox looks identical to an unfocused one. This applies to every
+       QPushButton/QCheckBox that doesn't already define its own :focus rule
+       (a widget-level stylesheet's own rules still take precedence). */
+    QPushButton:focus {{ border-color: {FOCUS}; }}
+    /* Checkbox focus is carried by the indicator's border, not by recolouring
+       the label: FOCUS is a saturated blue and tinting body text with it would
+       read as a link, not as focus. */
+    QCheckBox::indicator:focus {{ border: 1px solid {FOCUS}; }}
     QComboBox::drop-down {{ border: none; width: 18px; }}
     QComboBox QAbstractItemView {{
         background: {BG_CARD};

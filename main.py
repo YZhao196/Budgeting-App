@@ -15,13 +15,13 @@ import os
 import sys
 from datetime import date
 
-from PyQt6.QtCore import Qt, QDate, QPoint, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor, QFont
+from PyQt6.QtCore import Qt, QDate, QEasingCurve, QPoint, QPropertyAnimation, QTimer, pyqtSignal
+from PyQt6.QtGui import QCursor, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDoubleSpinBox,
-    QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout,
-    QWidget,
+    QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMenu, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
 import backend as B
@@ -29,6 +29,7 @@ import datamanagement as dm
 import exporters as X
 import importers as IMP
 import theme as T
+import widgets
 from widgets import (
     AccountDialog, AreaChart, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
@@ -43,26 +44,83 @@ from widgets import (
 # --------------------------------------------------------------------------- #
 #  Shared helpers
 # --------------------------------------------------------------------------- #
-def card(margins=(18, 16, 18, 16), spacing=10, accent=None):
-    """A standard card panel. Pass accent=T.ACCENT (or another colour) to add
-    a 2px top border — a hierarchy signal for the handful of most-important
-    cards on a page, reusing the same pattern already used by the Overview
-    ledger cards, rather than making every card look identical regardless of
-    importance."""
+# Growth below this (in percentage points) reads as "flat" rather than up or
+# down. Guards against float division reporting a direction for what is, in
+# practice, no change — the Analytics growth tile renders "—" inside this band.
+_GROWTH_EPS = 0.05
+
+
+def card(margins=None, spacing=None):
+    """A content block: no border, no fill. Whitespace does the grouping.
+
+    Formerly a bordered, filled panel. Every card, tile and stat box carried a
+    1px border and a BG_CARD fill, which is self-defeating: Filipiuk p34 says a
+    closed region groups its contents, but when *every* region is closed, closure
+    stops carrying information — and p35 (figure-ground) then has nothing to work
+    with, because if nothing is background then nothing is foreground either. The
+    Overview hero competed with eight ledger rows, four weekly P&L lines, a chart
+    and three goal bars, every one of them boxed and equally weighted.
+
+    So blocks are chrome-free and separated by BLOCK_GAP. Horizontal padding is
+    zero: the content column (T.CONTENT_MAX_W) already provides the margin, and a
+    block indenting itself inside it would only re-create the old inset.
+
+    There is no ``accent`` variant. It used to paint a 2px T.ACCENT rule above the
+    four Tier-1 Analytics charts, which broke down twice once everything else went
+    chrome-free: a lone 1100px-wide rule read as a section *divider* rather than
+    emphasis, and T.ACCENT is green — i.e. the income colour — sitting above
+    "Spending composition", an expense chart. That's the same rank-vs-state
+    confusion as the old red "Worst month". Hierarchy is carried by heading weight
+    (T.FS_HEAD bold) and order instead, which is also what Notion does.
+    """
     fr = QFrame(); fr.setObjectName("Card")
-    top = f"border-top:2px solid {accent};" if accent else f"border-top:1px solid {T.BORDER_SOFT};"
-    fr.setStyleSheet(
-        f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER_SOFT}; {top}"
-        f"border-radius:{T.RADIUS}px;}}")
-    lay = QVBoxLayout(fr); lay.setContentsMargins(*margins); lay.setSpacing(spacing)
+    fr.setStyleSheet("#Card{background:transparent; border:none;}")
+    lay = QVBoxLayout(fr)
+    lay.setContentsMargins(*(margins or (0, 0, 0, 0)))
+    lay.setSpacing(T.SP_M if spacing is None else spacing)
     return fr, lay
 
 
-def scrollable(inner):
+def scrollable(inner, max_w=None):
+    """Scroll area around ``inner``.
+
+    Pass ``max_w=T.CONTENT_MAX_W`` for a full-page surface: the content is then
+    bounded to a centred column instead of stretching the full window width.
+    Without it a 1680px window puts a label at x=111 and its own spinbox at
+    x=1520, which Filipiuk p33 says reads as *unrelated* — the opposite of what a
+    field and its label should read as. The flanking stretches collapse to zero
+    on a narrow window, so this costs nothing below the cap.
+
+    Leave ``max_w`` unset for a surface that is already a narrow column (e.g.
+    Overview's fixed 356px right rail) — bounding it again would only shrink it.
+    """
     sc = BoundedScroll(); sc.setWidgetResizable(True)
     sc.setStyleSheet("background:transparent;border:none;")
-    sc.setWidget(inner)
+    sc.setWidget(widgets.bounded(inner, max_w))
     return sc
+
+
+def _crossfade_in(widget):
+    """Brief opacity fade for a page that just became current — confirms a
+    sidebar click registered and something changed (wayfinding), not a
+    transition meant to be admired: kept short (130ms) and skipped entirely
+    when widgets.ANIMATE is off (headless capture), so --shot never catches
+    a page mid-fade."""
+    if not widgets.ANIMATE:
+        return
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setStartValue(0.0); anim.setEndValue(1.0)
+    anim.setDuration(130)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    # Drop the effect once finished — leaving a QGraphicsOpacityEffect
+    # permanently attached costs an offscreen-buffer render pass on every
+    # repaint of a page that's often full of charts, for no benefit once
+    # it's fully opaque.
+    anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+    widget._crossfade = anim              # keep a reference alive
+    anim.start()
 
 
 
@@ -88,9 +146,29 @@ def dot_legend(items):
     return row
 
 
+def property_row(caption, widget, label_w=180):
+    """A Notion-style property row: fixed label column, value immediately beside
+    it, slack pushed out to the right.
+
+    The pattern this replaces was `label / addStretch(1) / widget`, which puts
+    the stretch *between* a field and its own label — so on a wide window the
+    label sat at x=449 and its spinbox at x=1460. Filipiuk p33: things that far
+    apart read as unrelated. The slack has to go somewhere; it must not go
+    between two things that belong together.
+    """
+    r = QHBoxLayout()
+    r.setSpacing(T.SP_M)
+    lb = label(caption, T.TEXT_MUTED, T.FS_BODY)
+    lb.setFixedWidth(label_w)
+    r.addWidget(lb)
+    r.addWidget(widget)
+    r.addStretch(1)
+    return r
+
+
 def tile_row(captions):
     """Build an evenly-spaced row of MetricTiles; returns (layout, [tiles])."""
-    row = QHBoxLayout(); row.setSpacing(12)
+    row = QHBoxLayout(); row.setSpacing(T.SP_XL)
     tiles = []
     for cap in captions:
         t = MetricTile(cap)
@@ -252,7 +330,7 @@ class LedgerDetailPage(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(14)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); lay.setSpacing(T.BLOCK_GAP)
 
         caps = (["This month", "Sources", "Recurring", "One-off"] if self.income
                 else ["This month", "Categories", "Recurring", "% of income"])
@@ -284,7 +362,7 @@ class LedgerDetailPage(QWidget):
         self.card.changed.connect(self._changed)
         lay.addWidget(self.card)
 
-        outer.addWidget(scrollable(content))
+        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
         self._refresh_summary()
 
     def _changed(self):
@@ -390,7 +468,7 @@ class _AnalyticsOverview(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(14)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); lay.setSpacing(T.BLOCK_GAP)
 
         trow, self.tiles = tile_row(
             ["Avg income / mo", "Avg expenses / mo", "Avg P&L / mo", "Avg savings"])
@@ -403,7 +481,7 @@ class _AnalyticsOverview(QWidget):
         # track" glance on the page and shouldn't require scrolling past a
         # dozen charts to reach.
         cmp_card, clay = card()
-        clay.addWidget(label("Month by month", T.TEXT, 12, bold=True))
+        clay.addWidget(label("Month by month", T.TEXT, T.FS_HEAD, bold=True))
         hdr = QHBoxLayout()
         for cap, w in [("Month", 90), ("Income", 80), ("Expenses", 80), ("P&L", 70), ("Rate", 50)]:
             lbl = label(cap, T.TEXT_DIM, 10, bold=True)
@@ -418,9 +496,9 @@ class _AnalyticsOverview(QWidget):
 
         # Budget vs actual is the core "am I on budget" loop — full width so
         # bars have room to read clearly, rather than sharing a row.
-        bva_card, bvly = card(accent=T.ACCENT)
+        bva_card, bvly = card()
         bva_hdr = QHBoxLayout()
-        self._bva_title = label("Budget vs actual — this month", T.TEXT, 12, bold=True)
+        self._bva_title = label("Budget vs actual — this month", T.TEXT, T.FS_HEAD, bold=True)
         bva_hdr.addWidget(self._bva_title); bva_hdr.addStretch(1)
         self._bva_edit = Clickable("Set budgets…", T.TEXT_DIM, 11, hover=T.ACCENT)
         self._bva_edit.clicked.connect(self._edit_budgets)
@@ -435,8 +513,8 @@ class _AnalyticsOverview(QWidget):
         bvly.addWidget(self._bva_empty)
         lay.addWidget(bva_card)
 
-        stk_card, sly = card(accent=T.ACCENT)
-        sly.addWidget(label("Spending composition — last 6 months", T.TEXT_MUTED, 12))
+        stk_card, sly = card()
+        sly.addWidget(label("Spending composition — last 6 months", T.TEXT, T.FS_HEAD, bold=True))
         srow = QHBoxLayout(); srow.setSpacing(14)
         self.stacked = StackedBarChart()
         self.stacked.setMinimumHeight(260)
@@ -460,16 +538,16 @@ class _AnalyticsOverview(QWidget):
         # read naturally as a pair rather than stacked one after the other.
         row_forecast = QHBoxLayout(); row_forecast.setSpacing(T.GAP)
 
-        fan_card, fanly = card(accent=T.ACCENT)
+        fan_card, fanly = card()
         fanly.addWidget(label("Liquid-balance forecast — next 6 months",
-                              T.TEXT_MUTED, 12))
+                              T.TEXT, T.FS_HEAD, bold=True))
         self.fan = FanChart()
         self.fan.setMinimumHeight(240)
         fanly.addWidget(self.fan)
         row_forecast.addWidget(fan_card, 1)
 
-        nw_card, nwly = card(accent=T.ACCENT)
-        self._nw_title = label("Net worth — history", T.TEXT_MUTED, 12)
+        nw_card, nwly = card()
+        self._nw_title = label("Net worth — history", T.TEXT, T.FS_HEAD, bold=True)
         nwly.addWidget(self._nw_title)
         self.area = AreaChart()
         self.area.setMinimumHeight(240)
@@ -535,7 +613,7 @@ class _AnalyticsOverview(QWidget):
         lay.addWidget(self.donut_card)
 
         lay.addStretch(1)
-        outer.addWidget(scrollable(content))
+        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
         self._months_series: list[tuple[int, int]] = []
 
     def set_context(self, doc, year, month):
@@ -617,20 +695,35 @@ class _AnalyticsOverview(QWidget):
             months_list = self.dm.list_months()
             best_ym = months_list[best_idx] if best_idx < len(months_list) else (year, month)
             worst_ym = months_list[worst_idx] if worst_idx < len(months_list) else (year, month)
+            # Colour by SIGN, not by rank. "Best"/"Worst" already carry the
+            # ranking in the tile's own label; colour is reserved app-wide for
+            # income-vs-expense, so a red "+$3,469" (a month that cleared three
+            # and a half thousand dollars, painted the same red as an overdue
+            # bill) spends that signal on nothing and contradicts the number's
+            # own sign. Filipiuk p91: red reads as negative — don't say negative
+            # about a profit.
+            best, worst = max(pnls), min(pnls)
             self.tiles2[0].set_value(
-                f"{dm.MONTH_ABBR[best_ym[1]]} {best_ym[0]}\n{money(max(pnls), cur)}",
-                T.GREEN)
+                f"{dm.MONTH_ABBR[best_ym[1]]} {best_ym[0]}\n{money(best, cur)}",
+                T.GREEN if best > 0 else T.RED if best < 0 else T.TEXT)
             self.tiles2[1].set_value(
-                f"{dm.MONTH_ABBR[worst_ym[1]]} {worst_ym[0]}\n{money(min(pnls), cur)}",
-                T.RED)
+                f"{dm.MONTH_ABBR[worst_ym[1]]} {worst_ym[0]}\n{money(worst, cur)}",
+                T.GREEN if worst > 0 else T.RED if worst < 0 else T.TEXT)
             positive = sum(1 for p in pnls if p > 0)
             self.tiles2[2].set_value(f"{positive}/{len(pnls)}", T.ACCENT)
             # income growth: this month vs 3-month avg of prior months
             if len(incs) >= 2:
                 prior_avg = sum(incs[:-1][-3:]) / len(incs[:-1][-3:])
                 growth = ((incs[-1] - prior_avg) / prior_avg * 100) if prior_avg else 0
-                arrow = "↑" if growth >= 0 else "↓"
-                gcol = T.GREEN if growth >= 0 else T.RED
+                # Three-way, against an epsilon rather than == 0: this is float
+                # division, and the old `>= 0` branch put flat income in the
+                # "up" bucket — rendering a green "↑0.0%". Flat is not up.
+                if growth > _GROWTH_EPS:
+                    arrow, gcol = "↑", T.GREEN
+                elif growth < -_GROWTH_EPS:
+                    arrow, gcol = "↓", T.RED
+                else:
+                    arrow, gcol = "", T.TEXT_DIM
                 self.tiles2[3].set_value(f"{arrow}{abs(growth):.1f}%", gcol)
             else:
                 self.tiles2[3].set_value("—", T.TEXT_DIM)
@@ -805,8 +898,13 @@ def _button(text, fg, bg, border):
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setStyleSheet(
         f"QPushButton{{background:{bg}; color:{fg}; border:1px solid {border};"
-        f"border-radius:0px; padding:8px 16px;}}"
-        f"QPushButton:hover{{border-color:{fg};}}")
+        f"border-radius:{T.RADIUS}px; padding:8px 16px;}}"
+        f"QPushButton:hover{{border-color:{fg};}}"
+        # The global stylesheet sets outline:none everywhere (theme.py), so
+        # without this a keyboard-focused button is visually identical to an
+        # unfocused one — nothing shows where Tab landed. Same T.FOCUS colour
+        # already used for focused text inputs, for one consistent signal.
+        f"QPushButton:focus{{border-color:{T.FOCUS};}}")
     return b
 
 
@@ -907,14 +1005,14 @@ class GoalsPage(QWidget):
         # Generous separation between sections — this page has only three
         # cards, so tight spacing left a large dead zone below; wider gaps
         # make the whitespace read as intentional rhythm instead.
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(22)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); lay.setSpacing(T.BLOCK_GAP)
 
         # this-month targets
         trow, self.tiles = tile_row(["Actual P&L", "Target P&L", "Savings rate"])
         lay.addLayout(trow)
         mcard, mlay = card()
         prog = QHBoxLayout(); prog.setSpacing(10)
-        prog.addWidget(label("Progress to target", T.TEXT_MUTED, 12))
+        prog.addWidget(label("Progress to target", T.TEXT_MUTED, T.FS_BODY))
         self.target_bar = ProgressBar(0, T.GREEN, 10)
         prog.addWidget(self.target_bar, 1)
         self.target_pct = label("", T.ACCENT, 12, bold=True)
@@ -925,7 +1023,7 @@ class GoalsPage(QWidget):
         # savings goals
         gcard, glay = card()
         gh = QHBoxLayout()
-        gh.addWidget(label("Savings goals", T.TEXT, 13, bold=True))
+        gh.addWidget(label("Savings goals", T.TEXT, T.FS_HEAD, bold=True))
         gh.addStretch(1)
         add = Clickable("+ Add goal", T.TEXT_MUTED, 12, hover=T.ACCENT)
         add.clicked.connect(self._add_goal)
@@ -937,20 +1035,18 @@ class GoalsPage(QWidget):
 
         # monthly targets editor
         ecard, elay = card()
-        elay.addWidget(label("Edit monthly targets", T.TEXT_MUTED, 12))
+        elay.addWidget(label("Edit monthly targets", T.TEXT, T.FS_HEAD, bold=True))
         self.target_in = _spin(0, 1_000_000)
         self.weekly_in = _spin(0, 1_000_000)
         for cap, w in (("Target P&L", self.target_in),
                        ("Weekly budget", self.weekly_in)):
-            r = QHBoxLayout()
-            r.addWidget(label(cap, T.TEXT, 12)); r.addStretch(1); r.addWidget(w)
-            elay.addLayout(r)
+            elay.addLayout(property_row(cap, w))
         save = _button("Save targets", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
         save.clicked.connect(self._save_targets)
-        elay.addSpacing(8); elay.addWidget(save, 0, Qt.AlignmentFlag.AlignLeft)
+        elay.addSpacing(T.SP_S); elay.addWidget(save, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(ecard)
         lay.addStretch(1)
-        outer.addWidget(scrollable(content))
+        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
 
     def set_context(self, doc, year, month):
         self.doc = doc
@@ -966,7 +1062,17 @@ class GoalsPage(QWidget):
         frac = (pnl / target) if target > 0 else (1.0 if pnl > 0 else 0.0)
         self.target_bar.set_frac(frac, T.GREEN if frac >= 1 else T.AMBER,
                                  target=1.0)
-        self.target_pct.setText(f"{frac * 100:.0f}%")
+        # Once the target is met the percentage stops being informative — it just
+        # counts upward against a bar that is already full and can never move
+        # again ("578%" over a pinned bar). Past 100% the useful fact is the
+        # surplus, in dollars, so report that instead and let the bar mean "met".
+        if frac >= 1 and target > 0:
+            self.target_pct.setText(f"met · {money(pnl - target, cur, signed=False)} over")
+            pct_col = T.GREEN
+        else:
+            self.target_pct.setText(f"{frac * 100:.0f}%")
+            pct_col = T.AMBER if target > 0 else T.TEXT_DIM
+        self.target_pct.setStyleSheet(f"color:{pct_col}; background:transparent;")
         self.target_in.setValue(target)
         self.weekly_in.setValue(doc.get("weekly_budget", 0))
         self._rebuild_goals(cur)
@@ -1012,8 +1118,10 @@ class GoalsPage(QWidget):
         lnk.setToolTip("Link an expense to this goal")
         lnk.clicked.connect(lambda _=False, gg=g, btn=lnk: self._link_expense(gg, btn))
         ed = Clickable("✎", T.TEXT_DIM, 12, hover=T.TEXT)
+        ed.setToolTip("Edit goal")
         ed.clicked.connect(lambda _=False, gg=g: self._edit_goal(gg))
         rm = Clickable("✕", T.TEXT_DIM, 12, hover=T.RED)
+        rm.setToolTip("Delete goal")
         rm.clicked.connect(lambda _=False, gg=g: self._delete_goal(gg))
         head.addSpacing(8); head.addWidget(lnk); head.addWidget(ed); head.addWidget(rm)
         box.addLayout(head)
@@ -1204,25 +1312,25 @@ class HistoryPage(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(20)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); lay.setSpacing(T.BLOCK_GAP)
 
         trow, self.tiles = tile_row(
             ["Total saved", "Avg / month", "Best month", "Months tracked"])
         lay.addLayout(trow)
 
         ccard, clay = card()
-        clay.addWidget(label("Cumulative savings", T.TEXT_MUTED, 12))
+        clay.addWidget(label("Cumulative savings", T.TEXT, T.FS_HEAD, bold=True))
         self.cum = LineChart(); self.cum.setMinimumHeight(220)
         clay.addWidget(self.cum)
         lay.addWidget(ccard)
 
         lcard, llay = card((10, 12, 10, 10))
-        llay.addWidget(label("Monthly history", T.TEXT_MUTED, 12))
+        llay.addWidget(label("Monthly history", T.TEXT, T.FS_HEAD, bold=True))
         self.rows = QVBoxLayout(); self.rows.setSpacing(3)
         llay.addLayout(self.rows)
         lay.addWidget(lcard)
         lay.addStretch(1)
-        outer.addWidget(scrollable(content))
+        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
 
     def set_context(self, doc, year, month):
         cur = doc.get("currency", "$")
@@ -1261,18 +1369,30 @@ class HistoryPage(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
             f"QPushButton{{text-align:left; background:transparent; border:none;"
-            f"border-radius:0px; padding:10px 12px;}}"
+            f"border-radius:{T.RADIUS}px; padding:10px 12px;}}"
             f"QPushButton:hover{{background:{T.BG_HOVER};}}")
-        lyt = QHBoxLayout(btn); lyt.setContentsMargins(2, 0, 6, 0); lyt.setSpacing(10)
-        lyt.addWidget(label(f"{dm.MONTH_NAMES[m]} {y}", T.TEXT, 13, bold=True))
+        # Fixed columns, slack at the END — like a Notion database row. The
+        # stretch used to sit between the bar and the figures, so one row's facts
+        # were flung to opposite ends of the window: "June 2026" at x=105 and its
+        # own P&L at x=1600. Filipiuk p33 — elements that far apart read as
+        # unrelated, and these are five facts about a single month.
+        lyt = QHBoxLayout(btn); lyt.setContentsMargins(2, 0, 6, 0)
+        lyt.setSpacing(T.SP_M)
+        mlbl = label(f"{dm.MONTH_NAMES[m]} {y}", T.TEXT, T.FS_BODY, bold=True)
+        mlbl.setFixedWidth(150)
+        lyt.addWidget(mlbl)
         bar = ProgressBar(sr, T.GREEN, 7)
         bar.setFixedWidth(120)
         lyt.addWidget(bar)
+        for txt in (f"in {money(inc, cur)}", f"out {money(-exp, cur)}"):
+            lb = label(txt, T.TEXT_MUTED, T.FS_MICRO)
+            lb.setFixedWidth(96)
+            lyt.addWidget(lb)
+        pl = label(money(p, cur), T.GREEN if p >= 0 else T.RED, T.FS_BODY, bold=True)
+        pl.setFixedWidth(96)
+        pl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lyt.addWidget(pl)
         lyt.addStretch(1)
-        lyt.addWidget(label(f"in {money(inc, cur)}", T.TEXT_MUTED, 11))
-        lyt.addWidget(label(f"out {money(-exp, cur)}", T.TEXT_MUTED, 11))
-        lyt.addSpacing(8)
-        lyt.addWidget(label(money(p, cur), T.GREEN if p >= 0 else T.RED, 14, bold=True))
         btn.clicked.connect(lambda _=False, yy=y, mm=m: self.goto(yy, mm))
         return btn
 
@@ -1294,7 +1414,7 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 18); lay.setSpacing(14)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); lay.setSpacing(T.BLOCK_GAP)
 
         pcard, play = card()
         play.addWidget(label("Currency symbol", T.TEXT, 12))
@@ -1338,22 +1458,11 @@ class SettingsPage(QWidget):
         slay.addLayout(crow)
         lay.addWidget(scard)
 
-        ecard, elay = card()
-        elay.addWidget(label("Export data (CSV)", T.TEXT, 13, bold=True))
-        elay.addWidget(label("Open the resulting file in Excel, Sheets or Numbers.",
-                             T.TEXT_MUTED, 11))
-        brow = QHBoxLayout(); brow.setSpacing(10)
-        b1 = _button("Export this month", T.TEXT, T.BG_INPUT, T.BORDER)
-        b1.clicked.connect(self._export_month)
-        b2 = _button("Export all months", T.TEXT, T.BG_INPUT, T.BORDER)
-        b2.clicked.connect(self._export_all)
-        brow.addWidget(b1); brow.addWidget(b2); brow.addStretch(1)
-        elay.addLayout(brow)
-        self.status = label("", T.GREEN, 11)
-        elay.addWidget(self.status)
-        lay.addWidget(ecard)
-
         # ── Connect bank accounts (file import — no logins) ──────────────── #
+        # Grouped with live sync and categorisation rules below: all three
+        # belong to the same "getting transaction data into the app" task,
+        # so a user working through that task doesn't have to skip past
+        # Net worth accounts / Export in between (settings review, 2026-07).
         icard, ilay = card()
         ilay.addWidget(label("Connect bank accounts (ANZ / ANZ Plus)", T.TEXT, 13, bold=True))
         desc = label(
@@ -1379,56 +1488,6 @@ class SettingsPage(QWidget):
         ilay.addWidget(self.import_status)
         lay.addWidget(icard)
         self._refresh_import_status()
-
-        # ── Net worth accounts ──────────────────────────────────────────── #
-        acard, aly = card()
-        ahdr = QHBoxLayout()
-        ahdr.addWidget(label("Net worth accounts", T.TEXT, 13, bold=True))
-        ahdr.addStretch(1)
-        addacc = _button("+ Add account", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
-        addacc.clicked.connect(self._add_account)
-        ahdr.addWidget(addacc)
-        aly.addLayout(ahdr)
-        aly.addWidget(label(
-            "Cash, savings and investments count as assets; debts and credit cards "
-            "as liabilities. Drives the net-worth chart and the forecast.",
-            T.TEXT_MUTED, 11))
-        self._accounts_box = QVBoxLayout(); self._accounts_box.setSpacing(4)
-        aly.addLayout(self._accounts_box)
-        self._nw_total = label("", T.TEXT, 12, bold=True)
-        aly.addWidget(self._nw_total)
-        lay.addWidget(acard)
-        self._refresh_accounts()
-
-        # ── Categorisation rules ────────────────────────────────────────── #
-        rcard, rly = card()
-        rly.addWidget(label("Categorisation rules", T.TEXT, 13, bold=True))
-        rly.addWidget(label("When an imported transaction's description contains the "
-                            "text, it's filed under the category.", T.TEXT_MUTED, 11))
-        self.rules_box = QVBoxLayout(); self.rules_box.setSpacing(4)
-        rly.addLayout(self.rules_box)
-        rrow = QHBoxLayout(); rrow.setSpacing(8)
-        self.rule_match = QLineEdit(); self.rule_match.setPlaceholderText("contains… (e.g. woolworths)")
-        self.rule_cat = QLineEdit()
-        self.rule_cat.setPlaceholderText("category — pick an existing expense to reconcile against it")
-        # Autocomplete against real expense-definition names: a rule whose
-        # category doesn't match one exactly can never show a non-zero
-        # "planned" figure in Plan vs actual (it'll always read as
-        # "not budgeted" rather than reconciling against anything) — nudge
-        # the user toward names that actually exist, without forcing it.
-        completer = QCompleter(self.dm.expense_names(), self.rule_cat)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.rule_cat.setCompleter(completer)
-        self._rule_cat_completer = completer
-        _ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
-                f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
-        self.rule_match.setStyleSheet(_ist); self.rule_cat.setStyleSheet(_ist)
-        addr = _button("Add rule", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
-        addr.clicked.connect(self._add_rule)
-        rrow.addWidget(self.rule_match, 1); rrow.addWidget(self.rule_cat, 1); rrow.addWidget(addr)
-        rly.addLayout(rrow)
-        lay.addWidget(rcard)
-        self._refresh_rules()
 
         # ── Live bank sync (via Basiq open-banking) — beta ──────────────── #
         lc, lly = card()
@@ -1469,6 +1528,72 @@ class SettingsPage(QWidget):
         lly.addWidget(self.live_status)
         lay.addWidget(lc)
 
+        # ── Categorisation rules ────────────────────────────────────────── #
+        rcard, rly = card()
+        rly.addWidget(label("Categorisation rules", T.TEXT, 13, bold=True))
+        rly.addWidget(label("When an imported transaction's description contains the "
+                            "text, it's filed under the category.", T.TEXT_MUTED, 11))
+        self.rules_box = QVBoxLayout(); self.rules_box.setSpacing(4)
+        rly.addLayout(self.rules_box)
+        rrow = QHBoxLayout(); rrow.setSpacing(8)
+        self.rule_match = QLineEdit(); self.rule_match.setPlaceholderText("contains… (e.g. woolworths)")
+        self.rule_cat = QLineEdit()
+        self.rule_cat.setPlaceholderText("category — pick an existing expense to reconcile against it")
+        # Autocomplete against real expense-definition names: a rule whose
+        # category doesn't match one exactly can never show a non-zero
+        # "planned" figure in Plan vs actual (it'll always read as
+        # "not budgeted" rather than reconciling against anything) — nudge
+        # the user toward names that actually exist, without forcing it.
+        completer = QCompleter(self.dm.expense_names(), self.rule_cat)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.rule_cat.setCompleter(completer)
+        self._rule_cat_completer = completer
+        _ist = (f"background:{T.BG_INPUT}; color:{T.TEXT};"
+                f"border:1px solid {T.BORDER_LIGHT}; padding:5px 7px;")
+        self.rule_match.setStyleSheet(_ist); self.rule_cat.setStyleSheet(_ist)
+        addr = _button("Add rule", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
+        addr.clicked.connect(self._add_rule)
+        rrow.addWidget(self.rule_match, 1); rrow.addWidget(self.rule_cat, 1); rrow.addWidget(addr)
+        rly.addLayout(rrow)
+        lay.addWidget(rcard)
+        self._refresh_rules()
+
+        # ── Export data (CSV) ─────────────────────────────────────────────── #
+        ecard, elay = card()
+        elay.addWidget(label("Export data (CSV)", T.TEXT, 13, bold=True))
+        elay.addWidget(label("Open the resulting file in Excel, Sheets or Numbers.",
+                             T.TEXT_MUTED, 11))
+        brow = QHBoxLayout(); brow.setSpacing(10)
+        b1 = _button("Export this month", T.TEXT, T.BG_INPUT, T.BORDER)
+        b1.clicked.connect(self._export_month)
+        b2 = _button("Export all months", T.TEXT, T.BG_INPUT, T.BORDER)
+        b2.clicked.connect(self._export_all)
+        brow.addWidget(b1); brow.addWidget(b2); brow.addStretch(1)
+        elay.addLayout(brow)
+        self.status = label("", T.GREEN, 11)
+        elay.addWidget(self.status)
+        lay.addWidget(ecard)
+
+        # ── Net worth accounts ──────────────────────────────────────────── #
+        acard, aly = card()
+        ahdr = QHBoxLayout()
+        ahdr.addWidget(label("Net worth accounts", T.TEXT, 13, bold=True))
+        ahdr.addStretch(1)
+        addacc = _button("+ Add account", T.GREEN, T.GREEN_BG, T.GREEN_BORDER)
+        addacc.clicked.connect(self._add_account)
+        ahdr.addWidget(addacc)
+        aly.addLayout(ahdr)
+        aly.addWidget(label(
+            "Cash, savings and investments count as assets; debts and credit cards "
+            "as liabilities. Drives the net-worth chart and the forecast.",
+            T.TEXT_MUTED, 11))
+        self._accounts_box = QVBoxLayout(); self._accounts_box.setSpacing(4)
+        aly.addLayout(self._accounts_box)
+        self._nw_total = label("", T.TEXT, 12, bold=True)
+        aly.addWidget(self._nw_total)
+        lay.addWidget(acard)
+        self._refresh_accounts()
+
         # ── Modules (plugins) ───────────────────────────────────────────── #
         mcard, mly = card()
         mly.addWidget(label("Modules", T.TEXT, 13, bold=True))
@@ -1490,7 +1615,7 @@ class SettingsPage(QWidget):
         dcard = QFrame(); dcard.setObjectName("DangerCard")
         dcard.setStyleSheet(
             f"#DangerCard{{background:{T.RED_BG}; border:1px solid {T.RED_BORDER};"
-            f"border-radius:0px;}}")
+            f"border-radius:{T.RADIUS}px;}}")
         dlay = QVBoxLayout(dcard)
         dlay.setContentsMargins(18, 14, 18, 14); dlay.setSpacing(8)
         dlay.addWidget(label("Danger zone", T.RED, 13, bold=True))
@@ -1502,14 +1627,14 @@ class SettingsPage(QWidget):
         rf = QFont(T.FONT_FAMILY); rf.setPixelSize(12); rst.setFont(rf)
         rst.setStyleSheet(
             f"QPushButton{{background:transparent; color:{T.RED};"
-            f"border:1px solid {T.RED_BORDER}; border-radius:0px; padding:7px 16px;}}"
+            f"border:1px solid {T.RED_BORDER}; border-radius:{T.RADIUS}px; padding:7px 16px;}}"
             f"QPushButton:hover{{background:{T.RED}; color:{T.BG_APP};"
             f"border-color:{T.RED};}}")
         rst.clicked.connect(self._confirm_reset)
         dlay.addWidget(rst, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(dcard)
         lay.addStretch(1)
-        self._scroll = scrollable(content)
+        self._scroll = scrollable(content, T.CONTENT_MAX_W)
         outer.addWidget(self._scroll)
 
     def set_context(self, doc, year, month):
@@ -1715,6 +1840,12 @@ class SettingsPage(QWidget):
             "Bank exports (*.csv *.ofx *.qfx);;All files (*.*)")
         if not path:
             return
+        # Parsing is synchronous and can take a moment on a large file — with
+        # no progress signal otherwise, show something's happening before the
+        # call blocks the event loop (polish review, 2026-07).
+        self.import_status.setStyleSheet(f"color:{T.TEXT_MUTED}; background:transparent;")
+        self.import_status.setText("Importing…")
+        QApplication.processEvents()
         try:
             raw = IMP.parse_file(path)
         except Exception as e:                         # malformed / unreadable file
@@ -2035,6 +2166,7 @@ class OnboardingDialog(QDialog):
             self._income_box.removeWidget(row_w); row_w.deleteLater()
 
         rm = Clickable("✕", T.TEXT_DIM, 11, hover=T.RED)
+        rm.setToolTip("Remove income source")
         rm.clicked.connect(remove)
         rl.addWidget(name_le, 1); rl.addWidget(amt_le)
         rl.addWidget(n_spin); rl.addWidget(unit_cb); rl.addWidget(rm)
@@ -2082,6 +2214,7 @@ class OnboardingDialog(QDialog):
             self._expense_box.removeWidget(row_w); row_w.deleteLater()
 
         rm = Clickable("✕", T.TEXT_DIM, 11, hover=T.RED)
+        rm.setToolTip("Remove expense source")
         rm.clicked.connect(remove)
         rl.addWidget(name_le, 1); rl.addWidget(amt_le); rl.addWidget(due_de)
         rl.addWidget(n_spin); rl.addWidget(unit_cb); rl.addWidget(rm)
@@ -2203,8 +2336,8 @@ class SubscriptionsPage(QWidget):
 
         self.body = QWidget()
         self.blay = QVBoxLayout(self.body)
-        self.blay.setContentsMargins(20, 16, 20, 18); self.blay.setSpacing(14)
-        outer.addWidget(scrollable(self.body))
+        self.blay.setContentsMargins(0, T.SP_L, 0, T.SP_2XL); self.blay.setSpacing(T.BLOCK_GAP)
+        outer.addWidget(scrollable(self.body, T.CONTENT_MAX_W))
 
     def _month_range(self):
         import calendar as _c
@@ -2920,6 +3053,7 @@ class MainWindow(QMainWindow):
 
         self._load_user_modules()        # discover & mount data/modules/*.py
         self._apply_sidebar()
+        self._install_shortcuts()        # after sidebar/pages exist — they're captured
 
         # reflect the active lens on the Month|Week pill, then apply it
         self.topbar.set_mode("month" if self.lens == "month" else "week")
@@ -2963,11 +3097,10 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(mp["widget"])
             TITLES[key] = mp["title"]
             self._NAV_VIS[key] = (False, False)
-            full_title = mp["title"]
-            short = full_title if len(full_title) <= 9 else full_title[:9] + "…"
-            nav_btn = self.sidebar.add_module_nav(key, mp["icon"], short)
-            if short != full_title:
-                nav_btn.setToolTip(full_title)
+            # No truncation: the 9-char cut existed only because a 72px icon rail
+            # couldn't fit a real word ("Quick stats" became "Quick sta…"). The
+            # sidebar is 240px of text now — let the module say its own name.
+            self.sidebar.add_module_nav(key, mp["icon"], mp["title"])
             self._module_keys.append(key)
         self.settings.set_module_info(self._module_loaded, self._module_errors,
                                       _mods.modules_dir())
@@ -2995,11 +3128,80 @@ class MainWindow(QMainWindow):
                     pass
             else:
                 page.set_context(md, self.year, self.month)
-        self.stack.setCurrentWidget(page)
+        if self.stack.currentWidget() is not page:
+            self.stack.setCurrentWidget(page)
+            _crossfade_in(page)
         self.sidebar.setActive(key)
         self.topbar.set_title(TITLES[key])
         mv, nv = self._NAV_VIS.get(key, (False, False))
         self.topbar.set_controls_visible(mv, nv)
+
+    # ---- keyboard layer ------------------------------------------------- #
+    def _install_shortcuts(self):
+        """The app had no keyboard accelerators at all: changing month meant
+        locating a 20px chevron. Nielsen #7 (Henderson p80) is specifically about
+        shortcuts for expert users, and the only user of this app is an expert
+        user — so it was the heuristic most tailored to this situation and the one
+        scoring lowest.
+
+        Ctrl rather than Cmd: this is a Windows/Qt app, and Qt maps
+        ControlModifier to Cmd on macOS automatically via QKeySequence.
+        """
+        def sc(seq, fn):
+            s = QShortcut(QKeySequence(seq), self)
+            s.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            s.activated.connect(fn)
+            return s
+
+        sc("Ctrl+K", self._open_palette)          # command palette
+        sc("Ctrl+F", self._open_search)           # global search
+        sc("Ctrl+Left",  lambda: self.shift_period(-1))
+        sc("Ctrl+Right", lambda: self.shift_period(1))
+        sc("Ctrl+T", self._goto_today)
+        # Ctrl+\ (Notion's own sidebar binding), NOT a bare "[": an
+        # ApplicationShortcut on a printable character is consulted by Qt's
+        # shortcut map *before* the focused widget sees the key, so "[" risks
+        # being swallowed while you're typing an item name or a note. Ctrl+\
+        # can't collide with text entry.
+        sc("Ctrl+\\", self.sidebar.toggle_collapsed)
+        for i, key in enumerate(
+                ["overview", "analytics", "subscriptions", "goals", "history"], 1):
+            sc(f"Ctrl+{i}", lambda k=key: self.go(k))
+        sc("Ctrl+,", lambda: self.go("settings"))  # the platform convention
+
+    def _palette_actions(self):
+        """(label, hint, fn) triples for the command palette."""
+        acts = [
+            ("Go to Overview",      "Ctrl+1", lambda: self.go("overview")),
+            ("Go to Analytics",     "Ctrl+2", lambda: self.go("analytics")),
+            ("Go to Subscriptions", "Ctrl+3", lambda: self.go("subscriptions")),
+            ("Go to Goals",         "Ctrl+4", lambda: self.go("goals")),
+            ("Go to History",       "Ctrl+5", lambda: self.go("history")),
+            ("Go to Settings",      "Ctrl+,", lambda: self.go("settings")),
+            ("Next period",         "Ctrl+→", lambda: self.shift_period(1)),
+            ("Previous period",     "Ctrl+←", lambda: self.shift_period(-1)),
+            ("Go to today",         "Ctrl+T", self._goto_today),
+            ("Search everything",   "Ctrl+F", self._open_search),
+            ("Toggle sidebar",      "Ctrl+\\", self.sidebar.toggle_collapsed),
+            ("Add income item",     "Overview",
+             lambda: (self.go("overview"), self.overview.income_card._add_top())),
+            ("Add expense item",    "Overview",
+             lambda: (self.go("overview"), self.overview.expense_card._add_top())),
+            ("Import bank file…",   "Settings",
+             lambda: (self.go("settings"), self.settings._import_bank())),
+            ("Review transactions…", "Settings",
+             lambda: (self.go("settings"), self.settings._review_transactions())),
+        ]
+        # Jumping to a month is the thing the month-nav chevrons make slowest, so
+        # the palette offers every month that actually has data, newest first.
+        for (y, m) in sorted(self.dm.list_months(), reverse=True)[:24]:
+            acts.append((f"Jump to {dm.MONTH_ABBR[m]} {y}", "month",
+                         lambda yy=y, mm=m: self.goto_month(yy, mm)))
+        return acts
+
+    def _open_palette(self):
+        from widgets import CommandPalette
+        CommandPalette(self, self._palette_actions()).exec()
 
     def _open_search(self):
         from widgets import SearchDialog
@@ -3160,7 +3362,6 @@ def main():
     app.setFont(QFont(T.FONT_FAMILY, 10))
 
     if "--shot" in args:
-        import widgets
         widgets.ANIMATE = False       # deterministic, fully-revealed charts for capture
 
     win = MainWindow()
