@@ -362,7 +362,12 @@ class LedgerDetailPage(QWidget):
         self.card.changed.connect(self._changed)
         lay.addWidget(self.card)
 
-        outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
+        # Unbounded, matching the Analytics Overview tab: the whole Analytics
+        # section fills the window width and reflows on resize. The Income and
+        # Expenses tabs were the one part still pinned to the 1100 reading
+        # column, so they stopped filling once the window passed 1100 — the
+        # inconsistency behind "it doesn't fill out when I resize".
+        outer.addWidget(scrollable(content))
         self._refresh_summary()
 
     def _changed(self):
