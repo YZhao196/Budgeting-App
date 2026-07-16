@@ -514,8 +514,10 @@ class _AnalyticsOverview(QWidget):
         row_history.addWidget(stk_card, 3)
         lay.addLayout(row_history)
 
-        # Budget vs actual is the core "am I on budget" loop — full width so the
-        # grouped bars have room to read clearly, rather than sharing a row.
+        # Budget vs actual — built here, but placed at the bottom in the
+        # this-month "detail" column beside Plan vs actual (both are this-month
+        # expense tracking, and both have sparse empty states that wasted a full
+        # row on their own). Not added to `lay` yet.
         bva_card, bvly = card()
         bva_hdr = QHBoxLayout()
         self._bva_title = label("Budget vs actual — this month", T.TEXT, T.FS_HEAD, bold=True)
@@ -531,10 +533,9 @@ class _AnalyticsOverview(QWidget):
             "ideal per category, then this tracks actual vs. budget.", T.TEXT_DIM, 11)
         self._bva_empty.setWordWrap(True); self._bva_empty.setVisible(False)
         bvly.addWidget(self._bva_empty)
-        lay.addWidget(bva_card)
 
-        # Topic shift: from this-month budget tracking to a longer-run
-        # forecast/net-worth view — extra breathing room marks the break.
+        # Topic shift: from this-month figures to a longer-run forecast/net-worth
+        # view — extra breathing room marks the break.
         lay.addSpacing(T.GAP_SECTION - T.GAP)
 
         # Forecast + net worth: same chart family, same minimum height —
@@ -590,17 +591,17 @@ class _AnalyticsOverview(QWidget):
         row_trend.addWidget(self.donut_card, 2)
         lay.addLayout(row_trend)
 
-        # Topic shift: from trend/history into forward-looking + reconcile
-        # analysis.
+        # Topic shift: this-month detail — forward income (left) beside expense
+        # tracking (right). The left card runs tall (a chart plus the recurring-
+        # sources list), so the right column *stacks* two shorter this-month
+        # blocks — Budget vs actual and Plan vs actual — to match that height
+        # instead of leaving the right half of the page blank below a single
+        # short block.
         lay.addSpacing(T.GAP_SECTION - T.GAP)
-
-        # Predicted income (a forward look) next to plan-vs-actual (a
-        # backward check) — paired rather than stacked.
         row_pred = QHBoxLayout(); row_pred.setSpacing(T.GAP)
 
         pred_card, pely = card()
-        pely.addWidget(label("Predicted Income — next 6 months (recurring sources)",
-                             T.TEXT_MUTED, 12))
+        pely.addWidget(label("Predicted income — next 6 months", T.TEXT, T.FS_HEAD, bold=True))
         self.pred_chart = LineChart()
         self.pred_chart.setMinimumHeight(160)
         pely.addWidget(self.pred_chart)
@@ -608,20 +609,30 @@ class _AnalyticsOverview(QWidget):
         pely.addWidget(label("Recurring sources — next month", T.TEXT_DIM, 10, bold=True))
         self.pred_breakdown_box = QVBoxLayout(); self.pred_breakdown_box.setSpacing(5)
         pely.addLayout(self.pred_breakdown_box)
+        pely.addStretch(1)
         row_pred.addWidget(pred_card, 1)
 
         rec_card, rcly = card()
-        rcly.addWidget(label("Plan vs actual — this month", T.TEXT_MUTED, 12))
+        rcly.addWidget(label("Plan vs actual — this month", T.TEXT, T.FS_HEAD, bold=True))
         self.rec_box = QVBoxLayout(); self.rec_box.setSpacing(5)
         rcly.addLayout(self.rec_box)
-        rcly.addStretch(1)   # paired with the taller predicted-income card;
-                             # push extra height below the content
-        row_pred.addWidget(rec_card, 1)
+        rcly.addStretch(1)
+
+        expense_col = QVBoxLayout(); expense_col.setSpacing(T.BLOCK_GAP)
+        expense_col.addWidget(bva_card)
+        expense_col.addWidget(rec_card)
+        expense_col.addStretch(1)
+        row_pred.addLayout(expense_col, 1)
 
         lay.addLayout(row_pred)
 
         lay.addStretch(1)
-        outer.addWidget(scrollable(content, T.CONTENT_MAX_W_WIDE))
+        # Unbounded: Analytics is a dense dashboard, so it fills the full window
+        # width dynamically (like the Overview grid) rather than sitting in a
+        # fixed column with dead margins — the charts and paired blocks reflow to
+        # whatever width the window actually is. The reading-column cap is for
+        # prose-shaped pages; this isn't one.
+        outer.addWidget(scrollable(content))
         self._months_series: list[tuple[int, int]] = []
 
     def set_context(self, doc, year, month):
