@@ -104,6 +104,37 @@ def category_color(name: str) -> str:
         h = ((h ^ ord(c)) * 16777619) & 0xFFFFFFFF
     return SERIES[h % len(SERIES)]
 
+
+def sign_ramp(n: int, income: bool) -> list:
+    """A green-family (income) or red-family (expense) ramp of ``n`` colours for
+    a breakdown pie/donut — on-brand, so the pie reads as "this is spending" (red)
+    or "this is earning" (green) rather than an off-theme rainbow.
+
+    Ordered light→dark, so a segments-sorted-biggest-first donut puts the
+    brightest slice on the largest share. Steps vary in lightness (and drift a
+    little in hue) so adjacent slices stay distinguishable within one hue family
+    — the trade for staying near green/red is that separation comes from
+    lightness, not hue. Muted saturation to match the dark theme, and the band is
+    kept off the exact functional GREEN/RED so a slice never *is* the token.
+
+    Unlike category_color this is position-based, not name-based: a category's
+    slice colour can shift month to month as its rank changes. That's an accepted
+    cost of the green/red look and is confined to the pie + its own legend.
+    """
+    import colorsys
+    base_h = 0.365 if income else 0.020          # green vs red hue
+    steps = max(1, n)
+    out = []
+    for i in range(steps):
+        t = i / (steps - 1) if steps > 1 else 0.0
+        hue = (base_h + 0.05 * (t - 0.5)) % 1.0  # slight drift for separation
+        light = 0.66 - 0.26 * t                  # light (big slice) → dark
+        sat = 0.40 - 0.07 * t
+        r, g, b = colorsys.hls_to_rgb(hue, light, sat)
+        out.append("#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))
+    return out
+
+
 # Priority squares
 DOT_OVERDUE   = "#cc5555"   # red  – past due
 DOT_SOON      = "#c8944a"   # amber – due soon

@@ -414,13 +414,16 @@ class LedgerDetailPage(QWidget):
         data = [(n, B.active_amount(n, y, m)) for n in items]
         data = sorted([t for t in data if t[1] > 0], key=lambda t: t[1], reverse=True)
         dtotal = sum(a for _, a in data) or 1
-        segs = [(a, T.category_color(n["name"])) for n, a in data]
+        # Green ramp for an income breakdown, red for expenses (T.sign_ramp) —
+        # the pie stays on-brand instead of an off-theme rainbow.
+        ramp = T.sign_ramp(len(data), self.income)
+        segs = [(a, ramp[i]) for i, (n, a) in enumerate(data)]
         names = [n["name"] for n, _ in data]
         self.donut.set_segments(segs, money(dtotal, cur, signed=False),
                                 "income" if self.income else "spent", names=names)
         clear_layout(self.legend)
         for i, (n, a) in enumerate(data):
-            row = _LegendRow(self.donut, i, T.category_color(n["name"]),
+            row = _LegendRow(self.donut, i, ramp[i],
                              n["name"], f"{a / dtotal * 100:.0f}%",
                              money(a if self.income else -a, cur))
             self.legend.addWidget(row)
@@ -886,12 +889,15 @@ class _AnalyticsOverview(QWidget):
         exp = [(n, B.active_amount(n, year, month)) for n in doc.get("expenses", [])]
         exp = sorted([t for t in exp if t[1] > 0], key=lambda t: t[1], reverse=True)
         total = sum(a for _, a in exp) or 1
-        segs = [(a, T.category_color(n["name"])) for n, a in exp]
+        # Red ramp — this is the expense breakdown, so the pie reads as spending
+        # (T.sign_ramp) rather than an off-theme rainbow.
+        ramp = T.sign_ramp(len(exp), income=False)
+        segs = [(a, ramp[i]) for i, (n, a) in enumerate(exp)]
         names = [n["name"] for n, _ in exp]
         self.donut.set_segments(segs, money(total, cur, signed=False), "spent", names=names)
         clear_layout(self.legend)
         for i, (n, a) in enumerate(exp):
-            row = _LegendRow(self.donut, i, T.category_color(n["name"]),
+            row = _LegendRow(self.donut, i, ramp[i],
                              n["name"], f"{a / total * 100:.0f}%",
                              money(-a, cur))
             self.legend.addWidget(row)
