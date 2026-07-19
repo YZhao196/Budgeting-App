@@ -137,7 +137,7 @@ def dot_legend(items):
     row = QHBoxLayout(); row.setSpacing(6); row.setContentsMargins(0, 2, 0, 0)
     for color, text in items:
         sw = QFrame(); sw.setFixedSize(8, 8)
-        sw.setStyleSheet(f"background:{color}; border-radius:4px;")
+        sw.setStyleSheet(f"background:{color}; border-radius:{T.RADIUS_SM}px;")
         row.addWidget(sw)
         lbl = label(text, T.TEXT_DIM, 10)
         row.addWidget(lbl)
@@ -1464,7 +1464,7 @@ class SettingsPage(QWidget):
         wlay.addWidget(label("How the “Week” lens slices time when you review by week.",
                              T.TEXT_MUTED, 11))
         self.week_style = QComboBox(); self.week_style.addItems(list(self._WEEK_LABELS))
-        self.week_style.setFixedWidth(320)
+        self.week_style.setFixedWidth(420)   # fits the humanised (longer) labels
         cur_style = (self.dm.settings().get("week_style", "iso_week")
                      if hasattr(self.dm, "settings") else "iso_week")
         inv = {v: k for k, v in self._WEEK_LABELS.items()}

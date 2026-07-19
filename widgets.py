@@ -310,9 +310,11 @@ def draw_focus_ring(widget, painter=None):
     if not widget.hasFocus():
         return
     p = painter or QPainter(widget)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     p.setPen(QPen(QColor(T.FOCUS), 1))
     p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawRect(widget.rect().adjusted(0, 0, -1, -1))
+    p.drawRoundedRect(widget.rect().adjusted(0, 0, -1, -1),
+                      T.RADIUS_SM, T.RADIUS_SM)
 
 
 class Clickable(QLabel):
@@ -690,7 +692,7 @@ class MonthPickerPopup(QFrame):
                 QPushButton {{
                     background:{bg}; color:{fg};
                     border:1px solid {brd}; {today_rule}
-                    border-radius:4px;
+                    border-radius:{T.RADIUS_SM}px;
                     font-family:{T.FONT_FAMILY}; font-size:11px; font-weight:{bold_w};
                 }}
                 QPushButton:hover {{
@@ -748,7 +750,7 @@ class MonthNav(QWidget):
     def _style_lbl(self):
         self.lbl.setStyleSheet(
             f"QPushButton{{color:{T.TEXT}; background:{T.BG_CARD}; border:1px solid {T.BORDER};"
-            f"padding:5px 0; letter-spacing:1px;}}"
+            f"border-radius:{T.RADIUS}px; padding:5px 0; letter-spacing:1px;}}"
             f"QPushButton:hover{{border-color:{T.ACCENT}; color:{T.TEXT};}}")
 
     def set_label(self, text):
@@ -850,7 +852,7 @@ class SegTabBar(QWidget):
         if kind == "pill":
             self.setStyleSheet(
                 f"SegTabBar {{ background:{T.BG_CARD_SOFT};"
-                f"border:1px solid {T.BORDER}; }}")
+                f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; }}")
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
@@ -875,9 +877,10 @@ class SegTabBar(QWidget):
         if self.kind == "pill":
             b.setStyleSheet(f"""
                 QPushButton {{ background:transparent; color:{T.TEXT_MUTED};
-                    border:none; padding:5px 13px; }}
+                    border:none; border-radius:{T.RADIUS_SM}px; padding:5px 13px; }}
                 QPushButton:hover {{ color:{T.TEXT}; }}
-                QPushButton:checked {{ background:{T.BG_PILL}; color:{T.TEXT}; }}""")
+                QPushButton:checked {{ background:{T.BG_PILL}; color:{T.TEXT};
+                    border-radius:{T.RADIUS_SM}px; }}""")
         else:
             b.setStyleSheet(f"""
                 QPushButton {{ background:transparent; color:{T.TEXT_MUTED};
@@ -914,12 +917,13 @@ def calc_eval(text):
 def _dot_icon(color, size=14):
     pm = QPixmap(size, size); pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    box = QRectF(3, 3, size - 6, size - 6)
     if color:
         p.setBrush(QColor(color)); p.setPen(Qt.PenStyle.NoPen)
-        p.drawRect(3, 3, size - 6, size - 6)
+        p.drawRoundedRect(box, 3, 3)
     else:
         p.setBrush(Qt.BrushStyle.NoBrush); p.setPen(QPen(QColor(T.TEXT_DIM), 1.3))
-        p.drawRect(3, 3, size - 6, size - 6)
+        p.drawRoundedRect(box, 3, 3)
     p.end()
     return QIcon(pm)
 
@@ -1057,15 +1061,16 @@ class PriorityCell(QWidget):
 
     def paintEvent(self, e):
         p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         col = PRIO_COLORS.get(self.node.get("priority", 0) or 0)
         s = 8.0
         rect = QRectF((self.width() - s) / 2, (self.height() - s) / 2, s, s)
         if col:
             p.setBrush(QColor(col)); p.setPen(Qt.PenStyle.NoPen)
-            p.drawRect(rect)
+            p.drawRoundedRect(rect, 2.5, 2.5)
         elif self._hover:
             p.setBrush(Qt.BrushStyle.NoBrush); p.setPen(QPen(QColor(T.TEXT_DIM), 1.2))
-            p.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+            p.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 2.5, 2.5)
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -2249,7 +2254,7 @@ class TagDialog(QDialog):
     def _chip(self, text):
         w = QWidget()
         w.setStyleSheet(
-            f"background:{T.BG_INPUT}; border:1px solid {T.BORDER}; border-radius:8px;")
+            f"background:{T.BG_INPUT}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px;")
         h = QHBoxLayout(w); h.setContentsMargins(8, 2, 5, 2); h.setSpacing(4)
         nm = Clickable(text, T.ACCENT, 10, hover=T.TEXT)
         nm.setToolTip("Click to rename")
@@ -3513,7 +3518,7 @@ class SummaryCard(QFrame):
         self._deficit_w.setObjectName("DeficitBanner")
         self._deficit_w.setStyleSheet(
             f"#DeficitBanner{{background:{T.RED_BG};"
-            f"border:1px solid {T.RED_BORDER};border-radius:4px;}}")
+            f"border:1px solid {T.RED_BORDER};border-radius:{T.RADIUS}px;}}")
         _dl = QHBoxLayout(self._deficit_w)
         _dl.setContentsMargins(9, 6, 9, 6); _dl.setSpacing(6)
         _dl.addWidget(label("To break even", T.TEXT_MUTED, 11))
@@ -3533,7 +3538,7 @@ class SummaryCard(QFrame):
         self._reality_w.setObjectName("RealityBanner")
         self._reality_w.setStyleSheet(
             f"#RealityBanner{{background:{T.BG_CARD_SOFT};"
-            f"border:1px solid {T.BORDER_LIGHT};border-radius:4px;}}")
+            f"border:1px solid {T.BORDER_LIGHT};border-radius:{T.RADIUS}px;}}")
         _rl = QHBoxLayout(self._reality_w)
         _rl.setContentsMargins(9, 6, 9, 6); _rl.setSpacing(6)
         _rl.addWidget(label("Bank says", T.TEXT_MUTED, 11))
@@ -4258,7 +4263,8 @@ class GroupedBarChart(QWidget):
             cy = y0 + self.ROW_H / 2
             if i == self._hover:
                 p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.BG_HOVER))
-                p.drawRect(QRectF(0, y0, self.width(), self.ROW_H))
+                p.drawRoundedRect(QRectF(0, y0, self.width(), self.ROW_H),
+                                  T.RADIUS_SM, T.RADIUS_SM)
 
             # category label
             p.setFont(f)
@@ -4269,12 +4275,13 @@ class GroupedBarChart(QWidget):
 
             bw_budget = budget / maxv * bar_w
             bw_actual = actual / maxv * bar_w * self._reveal
+            br = 4   # bar corner radius (bars are 10px tall)
 
             # hollow budget track
             if budget > 0:
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.setPen(QPen(QColor(T.BORDER_LIGHT), 1))
-                p.drawRect(QRectF(bar_x, cy - 5, bw_budget, 10))
+                p.drawRoundedRect(QRectF(bar_x, cy - 5, bw_budget, 10), br, br)
 
             # actual fill (colour by pace)
             if actual > 0:
@@ -4283,13 +4290,14 @@ class GroupedBarChart(QWidget):
                        else T.AMBER if ratio <= 1.0 else T.RED)
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(col))
-                p.drawRect(QRectF(bar_x, cy - 5,
-                                  min(bw_actual, bw_budget) if budget else bw_actual, 10))
+                p.drawRoundedRect(QRectF(bar_x, cy - 5,
+                                  min(bw_actual, bw_budget) if budget else bw_actual, 10),
+                                  br, br)
                 if budget and bw_actual > bw_budget:      # overrun tail
                     tail = QColor(T.RED); tail.setAlpha(160)
                     p.setBrush(tail)
-                    p.drawRect(QRectF(bar_x + bw_budget, cy - 5,
-                                      bw_actual - bw_budget, 10))
+                    p.drawRoundedRect(QRectF(bar_x + bw_budget, cy - 5,
+                                      bw_actual - bw_budget, 10), br, br)
 
             # budget tick
             if budget > 0:
@@ -5272,7 +5280,13 @@ class ProgressBar(QWidget):
 
     def paintEvent(self, e):
         p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         h, w = self.height(), self.width()
+        # Pill track: clip everything to a fully-rounded track so the fill flows
+        # into the rounded ends instead of poking out square (rounded theme).
+        r = h / 2
+        track = QPainterPath(); track.addRoundedRect(QRectF(0, 0, w, h), r, r)
+        p.setClipPath(track)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(T.BG_PILL))
         p.drawRect(QRectF(0, 0, w, h))
@@ -5286,6 +5300,7 @@ class ProgressBar(QWidget):
             oc = QColor(T.RED); oc.setAlpha(200)
             p.setBrush(oc)
             p.drawRect(QRectF(w * (1 - over), 0, w * over, h))
+        p.setClipping(False)
         # target tick — inset 1px from each edge so it stays visible even at
         # target == 1.0 (where it would otherwise sit exactly on the border).
         if self._target is not None and 0 <= self._target <= 1:
@@ -5348,7 +5363,8 @@ class WhoOwesBar(QWidget):
             cy = y0 + self.ROW_H / 2
             if i == self._hover:
                 p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(T.BG_HOVER))
-                p.drawRect(QRectF(0, y0, self.width(), self.ROW_H))
+                p.drawRoundedRect(QRectF(0, y0, self.width(), self.ROW_H),
+                                  T.RADIUS_SM, T.RADIUS_SM)
             p.setFont(f); p.setPen(QColor(T.TEXT if i == self._hover else T.TEXT_MUTED))
             p.drawText(QRectF(0, y0, self.LABEL_W - 10, self.ROW_H),
                        int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
@@ -5357,9 +5373,9 @@ class WhoOwesBar(QWidget):
             col = T.GREEN if amt >= 0 else T.RED
             p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(col))
             if amt >= 0:
-                p.drawRect(QRectF(mid, cy - 5, bw, 10))
+                p.drawRoundedRect(QRectF(mid, cy - 5, bw, 10), 4, 4)
             else:
-                p.drawRect(QRectF(mid - bw, cy - 5, bw, 10))
+                p.drawRoundedRect(QRectF(mid - bw, cy - 5, bw, 10), 4, 4)
             p.setFont(fv); p.setPen(QColor(col))
             p.drawText(QRectF(self.width() - self.VALUE_W + 4, y0,
                               self.VALUE_W - 6, self.ROW_H),

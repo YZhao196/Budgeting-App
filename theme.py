@@ -190,10 +190,13 @@ SIDEBAR_W           = 240   # was 72 — an icon rail whose 9px captions truncat
                             # ("Quick start" rendered as "Quick sta…")
 SIDEBAR_W_COLLAPSED = 48    # icon-only, toggled with "["
 HEADER_H            = 56
-RADIUS              = 5     # was 3 — Filipiuk p132: rounder reads as *more
-                            # user-friendly* (vs sharp = cool/clinical). 5px is
-                            # Notion's register: humane without being bubbly.
-RADIUS_SM           = 4     # chips / small controls, one step tighter than panels
+RADIUS              = 9     # panels, inputs, buttons, menus, dialogs. Rounder
+                            # theme (was 5): Filipiuk p132 — rounder reads as more
+                            # user-friendly. 9px is soft and approachable while
+                            # still crisp; small elements use the two below.
+RADIUS_SM           = 6     # chips, tags, bars, calendar cells, focus rings
+RADIUS_PILL         = 999   # fully-rounded ends — progress bars, segmented pills
+                            # (clamped to height/2 at the draw site)
 
 CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390px
                             # columns across 1500px and put a label at x=111 with
@@ -292,7 +295,7 @@ def global_qss() -> str:
         background: transparent; width: 10px; margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: {BORDER_LIGHT}; min-height: 30px;
+        background: {BORDER_LIGHT}; min-height: 30px; border-radius: 5px;
     }}
     QScrollBar::handle:vertical:hover {{ background: {BORDER_LIGHT}; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
