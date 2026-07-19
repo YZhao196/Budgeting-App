@@ -31,7 +31,7 @@ import importers as IMP
 import theme as T
 import widgets
 from widgets import (
-    AccountDialog, AreaChart, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
+    AccountDialog, BoundedScroll, BudgetDialog, CalendarHeatmap, ChartCard, ChartLegend,
     Clickable, DonutChart, FanChart, GoalDialog, GoalsBar, GroupedBarChart,
     LedgerCard, LineChart, MetricTile, MoneySpin, PersonDialog, PredictedIncomeCard,
     ProgressBar, SegTabBar, SharedPlanDialog, Sidebar, StackedBarChart,
@@ -546,28 +546,15 @@ class _AnalyticsOverview(QWidget):
         # view — extra breathing room marks the break.
         lay.addSpacing(T.GAP_SECTION - T.GAP)
 
-        # Forecast + net worth: same chart family, same minimum height —
-        # a near-term liquid-balance view and a long-run net-worth view
-        # read naturally as a pair rather than stacked one after the other.
-        row_forecast = QHBoxLayout(); row_forecast.setSpacing(T.GAP)
-
+        # Liquid-balance forecast (full width — the net-worth graph that used to
+        # sit beside it has been removed).
         fan_card, fanly = card()
         fanly.addWidget(label("Liquid-balance forecast — next 6 months",
                               T.TEXT, T.FS_HEAD, bold=True))
         self.fan = FanChart()
         self.fan.setMinimumHeight(240)
         fanly.addWidget(self.fan)
-        row_forecast.addWidget(fan_card, 1)
-
-        nw_card, nwly = card()
-        self._nw_title = label("Net worth — history", T.TEXT, T.FS_HEAD, bold=True)
-        nwly.addWidget(self._nw_title)
-        self.area = AreaChart()
-        self.area.setMinimumHeight(240)
-        nwly.addWidget(self.area)
-        row_forecast.addWidget(nw_card, 1)
-
-        lay.addLayout(row_forecast)
+        lay.addWidget(fan_card)
 
         # Trend paired with the category donut it drives: the trend says "click a
         # point to filter breakdown", and now the breakdown sits right beside it
@@ -706,14 +693,6 @@ class _AnalyticsOverview(QWidget):
         band = B.forecast_band(self.dm.items(), start_bal, date.today(), months=6)
         hist = [("Now", start_bal)]
         self.fan.set_data(hist, band, cur)
-
-        # net-worth area (real snapshots once ≥2 exist, else reconstructed)
-        nw = B.net_worth(accounts)
-        self._nw_title.setText(
-            f"Net worth — {money(nw['net'], cur, signed=False)}")
-        nw_series = B.net_worth_series(self.dm.items(), accounts, date.today(),
-                                       self.dm.networth_history(), months=6)
-        self.area.set_data(nw_series, cur)
 
         # second row tiles
         if pnls:
@@ -3398,17 +3377,17 @@ def _register_fonts():
     from PyQt6.QtGui import QFontDatabase
     fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     fonts = (
-        # Segoe UI (Windows) — the configured family, regular/bold/light/semibold
-        "segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf",
-        "segoeuil.ttf", "seguisb.ttf",
-        # fallback so the UI still renders if Segoe UI isn't installed
+        # Arial Nova (Windows) — the configured family, regular/bold/light
+        "ArialNova.ttf", "ArialNova-Bold.ttf", "ArialNova-Italic.ttf",
+        "ArialNovaLight.ttf", "ArialNovaCond.ttf",
+        # fallback so the UI still renders if Arial Nova isn't installed
         "arial.ttf", "arialbd.ttf",
     )
     for fname in fonts:
         path = os.path.join(fdir, fname)
         if os.path.exists(path):
             QFontDatabase.addApplicationFont(path)
-    # graceful fallback for QFont(...) constructions when Segoe UI isn't installed
+    # graceful fallback for QFont(...) constructions when Arial Nova isn't installed
     QFont.insertSubstitutions(T.FONT_FAMILY, ["Arial", "sans-serif"])
     QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT, [T.FONT_FAMILY, "Arial", "sans-serif"])
 

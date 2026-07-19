@@ -35,7 +35,7 @@ W_PAID   = 20          # expense "paid" toggle
 W_DUE    = 48
 W_PR     = 28
 W_ADDED  = 44
-ROW_ICON = 17          # a single row-action glyph box (recurrence/tag/note/delete)
+ROW_ICON = 20          # a single row-action glyph box (recurrence/tag/note/delete)
 W_ACT    = ROW_ICON * 4 + 3 * 3   # the action column holds up to four glyphs
 PLUS_W   = 16          # left-side hover "+" that adds a sub-item
 CHEV_W   = 14
@@ -408,8 +408,8 @@ class NavButton(QWidget):
     """
     clicked = pyqtSignal(str)
 
-    H = 32          # Notion's sidebar row height
-    _ICON = 18
+    H = 34          # sidebar row height (a touch taller for the larger icon)
+    _ICON = 22      # bigger sidebar glyphs
 
     def __init__(self, key, icon, text):
         super().__init__()
@@ -631,12 +631,12 @@ class MonthPickerPopup(QFrame):
 
         # Year navigation row
         yr_row = QHBoxLayout(); yr_row.setContentsMargins(0, 0, 0, 0); yr_row.setSpacing(4)
-        self._yr_prev = IconButton("chevron_left", 22, 11)
+        self._yr_prev = IconButton("chevron_left", 24, 15)
         self._yr_prev.setToolTip("Previous year")
         self._yr_prev.clicked.connect(lambda: self._shift_year(-1))
         self._yr_lbl = label("", T.TEXT, 12, bold=True)
         self._yr_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._yr_next = IconButton("chevron_right", 22, 11)
+        self._yr_next = IconButton("chevron_right", 24, 15)
         self._yr_next.setToolTip("Next year")
         self._yr_next.clicked.connect(lambda: self._shift_year(1))
         yr_row.addWidget(self._yr_prev)
@@ -725,10 +725,10 @@ class MonthNav(QWidget):
         self._cur_year:  int   = self._today_date.year
         self._cur_month: int   = self._today_date.month
 
-        today_btn = IconButton("today", 26, 13)
+        today_btn = IconButton("today", 30, 18)
         today_btn.setToolTip("Go to today")
         today_btn.clicked.connect(self.today.emit)
-        bl = IconButton("chevron_left", 26, 12)
+        bl = IconButton("chevron_left", 30, 17)
         bl.setToolTip("Previous period")
         bl.clicked.connect(self.prev.emit)
 
@@ -740,7 +740,7 @@ class MonthNav(QWidget):
         self._style_lbl()
         self.lbl.clicked.connect(self._show_picker)
 
-        br = IconButton("chevron_right", 26, 12)
+        br = IconButton("chevron_right", 30, 17)
         br.setToolTip("Next period")
         br.clicked.connect(self.next.emit)
 
@@ -811,7 +811,7 @@ class TopBar(QWidget):
         cl.addWidget(self.modebar); cl.addWidget(self.nav)
         self._center = center
 
-        self.search_btn = IconButton("search", 28, 15)
+        self.search_btn = IconButton("search", 32, 19)
         self.search_btn.setToolTip("Search (everything)")
         self.search_btn.clicked.connect(self.search.emit)
 

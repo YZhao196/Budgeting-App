@@ -219,11 +219,8 @@ BLOCK_GAP   = 40            # air *between* blocks (5×8pt). Was 32; widened so 
 WIN_W       = 1680
 WIN_H       = 980
 
-FONT_FAMILY       = "Segoe UI"         # base UI font — Microsoft's UI-purpose-built
-                                        # sans, tuned for small-size legibility; a
-                                        # cleaner, more neutral choice than Arial Nova
-                                        # for a dense, numbers-heavy dashboard
-FONT_FAMILY_LIGHT = "Segoe UI Light"   # large display numbers only (>= ~18px)
+FONT_FAMILY       = "Arial Nova"       # base UI font
+FONT_FAMILY_LIGHT = "Arial Nova Light" # large display numbers only (>= ~18px)
 
 # --------------------------------------------------------------------------- #
 #  Fluid UI scale
@@ -274,7 +271,7 @@ def input_style(pad: str = "6px 9px") -> str:
 def global_qss() -> str:
     return f"""
     * {{
-        font-family: "{FONT_FAMILY}", "Segoe UI", "Arial", sans-serif;
+        font-family: "{FONT_FAMILY}", "Arial", sans-serif;
         color: {TEXT};
         outline: none;
     }}
