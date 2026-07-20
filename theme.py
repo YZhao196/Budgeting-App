@@ -207,7 +207,10 @@ CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390
                             # creates focus; "it looks plain" is not a reason to
                             # fill it.
 
-GAP         = SP_M          # gutter between the three main columns
+GAP          = SP_M         # gutter between the three main columns
+SCROLL_GUTTER = 16          # gap between scrollable content and the scrollbar, so
+                            # content never butts against the 10px bar at the
+                            # viewport's right edge
 GAP_SECTION = 48            # visual "paragraph break" between topic clusters
 BLOCK_GAP   = 40            # air *between* blocks (5×8pt). Was 32; widened so the
                             # page breathes between blocks the way Notion does —

@@ -96,7 +96,15 @@ def scrollable(inner, max_w=None):
     """
     sc = BoundedScroll(); sc.setWidgetResizable(True)
     sc.setStyleSheet("background:transparent;border:none;")
-    sc.setWidget(widgets.bounded(inner, max_w))
+    # A right gutter so content doesn't run flush against the scrollbar. With a
+    # resizable widget the content otherwise fills to the bar's left edge (0 gap),
+    # which reads as cramped. The wrapper sits *outside* any centring done by
+    # bounded(), so it applies to full-width and centred pages alike.
+    host = QWidget(); host.setStyleSheet("background:transparent;")
+    hl = QHBoxLayout(host); hl.setContentsMargins(0, 0, T.SCROLL_GUTTER, 0)
+    hl.setSpacing(0)
+    hl.addWidget(widgets.bounded(inner, max_w))
+    sc.setWidget(host)
     return sc
 
 
