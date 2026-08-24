@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/colors.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/typography.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/radii.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/tokens/shadows.css">
+<link rel="stylesheet" href="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/styles.css">
+<script src="_ds/quire-design-system-b9445802-bbff-4935-a284-bc1e4e9614a6/_ds_bundle.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#111112;font-family:var(--font-sans)}
+#dc-root,x-dc{height:100%;display:block}
+.appshell{width:100%;height:100vh;display:flex;font-family:var(--font-sans);color:var(--color-ink);background:var(--color-canvas)}
+.rail{width:76px;flex:none;background:var(--color-canvas-soft);border-right:var(--border-hairline);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px}
+.rail-logo{width:28px;height:28px;border-radius:var(--radius-sm);background:var(--color-primary);margin-bottom:14px}
+.rail-item{width:56px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--color-ink-muted);font-size:10px;cursor:pointer;border-radius:var(--radius-sm);border:none;background:transparent}
+.rail-item svg{width:18px;height:18px}
+.rail-item.active{color:var(--color-primary);background:var(--color-surface);box-shadow:var(--shadow-1)}
+.rail-spacer{flex:1}
+.topbar{height:60px;flex:none;border-bottom:var(--border-hairline);display:flex;align-items:center;padding:0 24px;gap:14px}
+.topbar h4{margin:0;font:700 22px var(--font-sans);letter-spacing:-.4px}
+.seg-mini{display:flex;background:var(--color-canvas-soft);border-radius:var(--radius-full);padding:3px}
+.seg-mini span{padding:6px 14px;font-size:12px;border-radius:var(--radius-full);color:var(--color-ink-muted);cursor:pointer}
+.seg-mini span.on{background:var(--color-surface);color:var(--color-ink);box-shadow:var(--shadow-1)}
+.month-nav{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:13px;font-weight:600;color:var(--color-ink-secondary)}
+.month-nav button{background:none;border:none;padding:0;color:var(--color-ink-muted);cursor:pointer;display:flex}
+.month-nav svg{width:15px;height:15px}
+.icon-btn-mini{width:32px;height:32px;display:flex;align-items:center;justify-content:center;color:var(--color-ink-muted);border-radius:var(--radius-full);background:var(--color-canvas-soft);border:none;cursor:pointer}
+.icon-btn-mini svg{width:15px;height:15px}
+.content{flex:1;overflow:hidden;padding:22px 24px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.hstack{display:flex;gap:16px;min-height:0;min-width:0}
+.hstack>*{min-width:0}
+.qcard{background:var(--color-surface);border:var(--border-hairline);border-radius:var(--radius-md);box-shadow:var(--shadow-1)}
+.kicker{font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--color-ink-muted)}
+.pos-strong{color:var(--color-success);font-weight:700}
+.neg-strong{color:var(--color-danger);font-weight:700}
+.neg{color:var(--color-danger)}
+.scroll-y{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--color-hairline-strong) transparent}
+.scroll-y::-webkit-scrollbar{width:6px}
+.scroll-y::-webkit-scrollbar-track{background:transparent}
+.scroll-y::-webkit-scrollbar-thumb{background:var(--color-hairline-strong);border-radius:4px}
+.row-add{border:none;background:none;font-size:12.5px;color:var(--color-ink-muted);cursor:pointer;padding:8px 0 0;text-align:left}
+.txt-input{background:var(--color-canvas-soft);border:var(--border-hairline);border-radius:var(--radius-sm);padding:8px 12px;font:14px var(--font-sans);color:var(--color-ink);outline:none}
+.table-row{display:flex;align-items:center;padding:10px 0;border-top:var(--border-hairline);font-size:13.5px}
+.prow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:var(--border-hairline);font-size:13px}
+.modal-scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding-top:120px;z-index:50}
+.modal-box{width:520px;max-height:60vh;display:flex;flex-direction:column;background:var(--color-surface);border:var(--border-hairline);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);overflow:hidden}
+</style>
+</helmet>
+
+<div class="appshell" style="{{ themeVars }}" data-theme="dark" tabIndex="-1" onKeyDown="{{ onKeyDown }}">
+<sc-if value="{{ !railCollapsed }}">
+<div class="rail">
+<div class="rail-logo"></div>
+<sc-if value="{{ true }}"><button class="rail-item {{ navClass.overview }}" onClick="{{ goOverview }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</button></sc-if>
+<sc-if value="{{ showTab.analytics }}"><button class="rail-item {{ navClass.analytics }}" onClick="{{ goAnalytics }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Analytics</button></sc-if>
+<sc-if value="{{ showTab.subs }}"><button class="rail-item {{ navClass.subs }}" onClick="{{ goSubs }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>Subs</button></sc-if>
+<sc-if value="{{ showTab.goals }}"><button class="rail-item {{ navClass.goals }}" onClick="{{ goGoals }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Goals</button></sc-if>
+<sc-if value="{{ showTab.history }}"><button class="rail-item {{ navClass.history }}" onClick="{{ goHistory }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>History</button></sc-if>
+<div class="rail-spacer"></div>
+<button class="rail-item {{ navClass.settings }}" onClick="{{ goSettings }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+</div>
+</sc-if>
+
+<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+<!-- OVERVIEW -->
+<sc-if value="{{ isOverview }}">
+<div class="topbar">
+<h4>Overview</h4>
+<div class="seg-mini"><span class="{{ periodClass.month }}" onClick="{{ setPeriodMonth }}">Month</span><span class="{{ periodClass.week }}" onClick="{{ setPeriodWeek }}">Week</span></div>
+<div class="month-nav"><button onClick="{{ prevMonth }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 18l-6-6 6-6"/></svg></button><button onClick="{{ goToday }}" style="border:var(--border-hairline);border-radius:var(--radius-sm);padding:4px 10px;background:none;color:var(--color-ink-secondary);font:600 13px var(--font-sans);cursor:pointer">{{ monthLabel }}</button><button onClick="{{ nextMonth }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18l6-6-6-6"/></svg></button></div>
+<button class="icon-btn-mini" onClick="{{ openSearch }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="secondary" hint-size="70px,36px" onClick="{{ toggleEdit }}">{{ editLabel }}</x-import>
+</div>
+<div class="content">
+<div class="hstack" style="flex:1">
+<div class="qcard" style="flex:1;padding:16px 18px;display:flex;flex-direction:column;overflow:hidden">
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex:none"><span style="font:600 15px var(--font-sans)">Incoming</span><span class="pos-strong">{{ incomingTotalStr }}</span></div>
+<div class="scroll-y" style="flex:1">
+<sc-for list="{{ incoming }}" as="it" hint-placeholder-count="3">
+<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:var(--border-hairline);font-size:13.5px">
+<span>{{ it.name }}</span><span style="display:flex;gap:10px;align-items:center"><span class="pos-strong">{{ it.amountStr }}</span><span style="color:var(--color-ink-faint);font-size:12px">{{ it.date }}</span></span>
+</div>
+</sc-for>
+</div>
+<button class="row-add" onClick="{{ addIncome }}">+ Add item</button>
+</div>
+<div class="qcard" style="flex:1.6;padding:16px 18px;display:flex;flex-direction:column;overflow:hidden">
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex:none"><span style="font:600 15px var(--font-sans)">Outgoing</span><span class="neg-strong">{{ outgoingTotalStr }}</span></div>
+<div class="scroll-y" style="flex:1">
+<sc-for list="{{ outgoing }}" as="it" hint-placeholder-count="6">
+<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:var(--border-hairline);font-size:13.5px">
+<span style="display:flex;gap:6px;align-items:center;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.name }}<sc-for list="{{ it.tags }}" as="tg" hint-placeholder-count="1"><span style="flex:none"><x-import component-from-global-scope="QuireDesignSystem_b94458.Badge" tone="neutral" hint-size="auto,20px">{{ tg }}</x-import></span></sc-for></span>
+<span style="display:flex;gap:12px;align-items:center;flex:none"><span class="neg">{{ it.amountStr }}</span><span style="color:var(--color-ink-faint);font-size:12px;width:44px;text-align:right">{{ it.due }}</span></span>
+</div>
+</sc-for>
+</div>
+<button class="row-add" onClick="{{ addExpense }}">+ Add item</button>
+</div>
+</div>
+<div class="hstack" style="flex:1.1">
+<div class="qcard" style="flex:1;padding:16px 18px;overflow:hidden;display:flex;flex-direction:column">
+<div class="kicker">Monthly P&amp;L — {{ monthLabel }}</div>
+<div style="display:flex;align-items:baseline;gap:10px;margin-top:4px">
+<div class="pos-strong" style="font:700 28px var(--font-sans);letter-spacing:-.5px">+$3,469</div>
+<div style="font-size:12px;color:var(--color-ink-muted)">vs <span class="pos-strong">+$2,880</span> last month (<span class="pos-strong">+20.4%</span>)</div>
+</div>
+<div style="display:flex;gap:16px;margin-top:6px;font-size:11.5px;color:var(--color-ink-muted)">
+<span>In <span class="pos-strong">{{ incomingTotalStr }}</span></span>
+<span>Out <span class="neg">{{ outgoingTotalStr }}</span></span>
+<span>Savings rate <span style="color:var(--color-ink);font-weight:600">59%</span></span>
+</div>
+<svg viewBox="0 0 220 46" width="100%" height="42" preserveAspectRatio="none" style="margin-top:auto"><polyline points="0,30 44,14 88,6 132,24 176,28 220,4" fill="none" stroke="var(--color-success)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="220" cy="4" r="3" fill="var(--color-success)"/></svg>
+<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--color-ink-faint);margin-top:2px"><span>{{ plSparkStart }}</span><span>{{ monthLabel }}</span></div>
+</div>
+<div class="qcard" style="flex:1.3;padding:16px 18px;overflow:hidden;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:baseline;flex:none"><span class="kicker">Budget vs actual</span><div style="display:flex;gap:10px;font-size:10.5px;color:var(--color-ink-muted)"><span><i style="display:inline-block;width:8px;height:8px;background:var(--color-hairline-strong);border-radius:2px;margin-right:4px"></i>Budget</span><span><i style="display:inline-block;width:8px;height:8px;background:var(--color-primary);border-radius:2px;margin-right:4px"></i>Actual</span></div></div>
+<div class="scroll-y" style="flex:1;margin-top:4px">
+<sc-for list="{{ budget }}" as="b" hint-placeholder-count="5">
+<div style="margin-top:8px;font-size:11.5px">
+<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="color:var(--color-ink-secondary);font-weight:600">{{ b.name }}</span><span style="color:{{ b.overColor }}">{{ b.actualStr }} / {{ b.budgetStr }}</span></div>
+<div style="position:relative;height:clamp(6px, 0.8vh, 14px);background:var(--color-canvas-soft);border-radius:var(--radius-full)">
+<div style="position:absolute;inset:0;height:100%;background:{{ b.actualColor }};border-radius:var(--radius-full);width:{{ b.actualPct }}%"></div>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+<div class="hstack" style="flex:0.7">
+<sc-for list="{{ goals }}" as="g" hint-placeholder-count="3">
+<div class="qcard" style="flex:1;padding:12px 16px;display:flex;flex-direction:column;justify-content:center">
+<div style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:600">{{ g.name }}</span><span style="color:var(--color-ink-muted)">{{ g.badgeStr }}</span></div>
+<div style="height:7px;background:var(--color-canvas-soft);border-radius:var(--radius-full);margin:8px 0 5px"><div style="height:100%;background:var(--color-primary);border-radius:var(--radius-full);width:{{ g.barPct }}%"></div></div>
+<div style="font-size:11.5px;color:var(--color-ink-muted)">{{ g.current }} / {{ g.target }}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<!-- ANALYTICS -->
+<sc-if value="{{ isAnalytics }}">
+<div class="topbar"><h4>Analytics</h4>
+<div class="seg-mini"><span class="{{ analyticsTabClass.overview }}" onClick="{{ setAnalyticsOverview }}">Overview</span><span class="{{ analyticsTabClass.income }}" onClick="{{ setAnalyticsIncome }}">Income</span><span class="{{ analyticsTabClass.expenses }}" onClick="{{ setAnalyticsExpenses }}">Expenses</span></div>
+</div>
+<sc-if value="{{ isAnalyticsOverview }}">
+<div class="content scroll-y">
+<div class="hstack">
+<sc-for list="{{ avgTiles }}" as="t" hint-placeholder-count="4">
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">{{ t.label }}</div><div style="font:700 22px var(--font-sans);margin-top:4px;color:{{ t.color }}">{{ t.value }}</div></div>
+</sc-for>
+</div>
+<div class="hstack">
+<sc-for list="{{ mmTiles }}" as="t" hint-placeholder-count="4">
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">{{ t.label }}</div><div style="font:700 18px var(--font-sans);margin-top:4px;color:{{ t.color }}">{{ t.value }}</div></div>
+</sc-for>
+</div>
+<div class="hstack" style="flex:1;min-height:230px">
+<div class="qcard scroll-y" style="flex:1.2;padding:16px 18px">
+<div class="kicker" style="margin-bottom:8px">Month-by-month</div>
+<sc-for list="{{ monthRows }}" as="m" hint-placeholder-count="5">
+<div class="prow"><span style="width:60px">{{ m.label }}</span><span class="pos-strong" style="width:70px;text-align:right">{{ m.inStr }}</span><span class="neg" style="width:70px;text-align:right">{{ m.outStr }}</span><span style="width:70px;text-align:right;font-weight:700;color:{{ m.plColor }}">{{ m.plStr }}</span></div>
+</sc-for>
+</div>
+<div class="qcard" style="flex:1;padding:16px 18px;display:flex;flex-direction:column">
+<div class="kicker">Spending composition</div>
+<div style="flex:1;display:flex;align-items:flex-end;gap:8px;margin-top:10px">
+<sc-for list="{{ compositionBars }}" as="cb" hint-placeholder-count="5">
+<div style="flex:1;display:flex;flex-direction:column-reverse;height:100%;border-radius:2px;overflow:hidden">
+<sc-for list="{{ cb.segments }}" as="seg" hint-placeholder-count="3"><div style="height:{{ seg.h }}%;background:{{ seg.color }}"></div></sc-for>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+<div class="qcard" style="padding:16px 18px">
+<div class="kicker" style="margin-bottom:10px">Liquid balance forecast — next 6 months</div>
+<svg viewBox="0 0 600 70" width="100%" height="70" preserveAspectRatio="none"><polyline points="0,50 100,40 200,44 300,28 400,32 500,14 600,18" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ isAnalyticsIncome }}">
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:20px;display:flex;align-items:center;gap:20px">
+<div style="width:110px;height:110px;border-radius:50%;background:conic-gradient(var(--color-success) 0 70%, var(--color-hairline-strong) 70% 100%)"></div>
+<div><div class="kicker">Income sources</div><div style="font:700 26px var(--font-sans);margin-top:4px" class="pos-strong">{{ incomingTotalStr }}</div></div>
+</div>
+</div>
+<div class="qcard scroll-y" style="flex:1;padding:16px 18px">
+<sc-for list="{{ incoming }}" as="it" hint-placeholder-count="3">
+<div class="table-row" style="justify-content:space-between"><span>{{ it.name }}</span><span class="pos-strong">{{ it.amountStr }}</span></div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ isAnalyticsExpenses }}">
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:20px;display:flex;align-items:center;gap:20px">
+<div style="width:110px;height:110px;border-radius:50%;background:conic-gradient(var(--color-danger) 0 85%, var(--color-hairline-strong) 85% 100%)"></div>
+<div><div class="kicker">Expense breakdown</div><div style="font:700 26px var(--font-sans);margin-top:4px" class="neg-strong">{{ outgoingTotalStr }}</div></div>
+</div>
+</div>
+<div class="qcard scroll-y" style="flex:1;padding:16px 18px">
+<sc-for list="{{ outgoing }}" as="it" hint-placeholder-count="6">
+<div class="table-row" style="justify-content:space-between"><span>{{ it.name }}</span><span class="neg">{{ it.amountStr }}</span></div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</sc-if>
+
+<!-- SUBSCRIPTIONS -->
+<sc-if value="{{ isSubs }}">
+<div class="topbar"><h4>Subscriptions</h4>
+<div class="seg-mini"><span class="{{ subsTabClass.subs }}" onClick="{{ setSubsTabSubs }}">Subscriptions</span><span class="{{ subsTabClass.people }}" onClick="{{ setSubsTabPeople }}">People</span><span class="{{ subsTabClass.consumables }}" onClick="{{ setSubsTabConsumables }}">Consumables</span></div>
+<sc-if value="{{ isSubsMain }}"><div class="seg-mini"><span class="{{ billClass.monthly }}" onClick="{{ setBillMonthly }}">Monthly</span><span class="{{ billClass.yearly }}" onClick="{{ setBillYearly }}">Yearly</span></div>
+<div style="margin-left:auto;font-size:13px;color:var(--color-ink-muted)">Total: <span style="color:var(--color-ink);font-weight:700">{{ subsTotalStr }}</span></div></sc-if>
+</div>
+<sc-if value="{{ isSubsMain }}">
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Subscriptions</div><div style="font:700 22px var(--font-sans);margin-top:4px">{{ subs.length }}</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Monthly cost</div><div style="font:700 22px var(--font-sans);margin-top:4px">{{ subsMonthlyStr }}</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Owed to you</div><div class="pos-strong" style="font:700 22px var(--font-sans);margin-top:4px">{{ owedTotalStr }}</div></div>
+</div>
+<div class="qcard" style="padding:14px 16px">
+<div class="kicker" style="margin-bottom:10px">Due-dates calendar — {{ monthLabel }}</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px 0;font-size:10px;color:var(--color-ink-faint);text-align:center;margin-bottom:4px">
+<sc-for list="{{ weekdayLabels }}" as="wd" hint-placeholder-count="7"><span>{{ wd }}</span></sc-for>
+</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">
+<sc-for list="{{ calendarCells }}" as="cell" hint-placeholder-count="35">
+<div style="min-height:52px;padding:4px;border-top:{{ cell.rule }};font-size:11px;color:{{ cell.numColor }}">
+<div>{{ cell.day }}</div>
+<sc-if value="{{ cell.hasDue }}"><div style="margin-top:3px;font-size:10px;color:var(--color-primary);font-weight:600;line-height:1.3">{{ cell.dueLabel }}</div></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+<sc-for list="{{ subs }}" as="s" hint-placeholder-count="6">
+<div class="qcard" style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+<div><div style="font-weight:600;font-size:14px">{{ s.name }}</div><div style="font-size:12px;color:var(--color-ink-muted);margin-top:2px">{{ s.people }} people</div></div>
+<div style="font-weight:700">{{ s.priceStr }}</div>
+</div>
+</sc-for>
+<button class="row-add" onClick="{{ addSub }}">+ Add subscription</button>
+</div>
+</sc-if>
+<sc-if value="{{ isSubsPeople }}">
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:16px 18px"><div class="kicker">People</div><div style="font:700 26px var(--font-sans);margin-top:4px">{{ people.length }}</div></div>
+<div class="qcard" style="flex:1;padding:16px 18px"><div class="kicker">Owed to you</div><div class="pos-strong" style="font:700 26px var(--font-sans);margin-top:4px">{{ owedTotalStr }}</div></div>
+</div>
+<sc-for list="{{ people }}" as="p" hint-placeholder-count="2">
+<div class="qcard" style="padding:14px 18px;margin-top:14px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-weight:700;font-size:14px">{{ p.name }}</span>
+<span style="display:flex;gap:10px;align-items:center"><span class="pos-strong">owes {{ p.owedStr }}</span><x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="80px,28px" onClick="{{ p.settle }}" style="{&quot;fontSize&quot;:&quot;11.5px&quot;}">Settle up</x-import></span>
+</div>
+<sc-for list="{{ p.subs }}" as="ps" hint-placeholder-count="1"><div style="font-size:12.5px;color:var(--color-ink-muted);margin-top:6px">{{ ps }}</div></sc-for>
+</div>
+</sc-for>
+<button class="row-add" onClick="{{ addPerson }}">+ Add person</button>
+</div>
+</sc-if>
+<sc-if value="{{ isSubsConsumables }}">
+<div class="content scroll-y">
+<sc-for list="{{ consumables }}" as="c" hint-placeholder-count="4">
+<div class="qcard" style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+<div><div style="font-weight:600;font-size:14px">{{ c.name }}</div><div style="font-size:12px;color:var(--color-ink-muted);margin-top:2px">split with {{ c.people }}</div></div>
+<div style="font-weight:700">{{ c.priceStr }}</div>
+</div>
+</sc-for>
+<button class="row-add" onClick="{{ addConsumable }}">+ Add consumable</button>
+</div>
+</sc-if>
+</sc-if>
+
+<!-- GOALS -->
+<sc-if value="{{ isGoals }}">
+<div class="topbar"><h4>Goals</h4>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="primary" hint-size="120px,36px" onClick="{{ addGoal }}" style="{&quot;marginLeft&quot;:&quot;auto&quot;,&quot;padding&quot;:&quot;8px 18px&quot;,&quot;fontSize&quot;:&quot;13px&quot;}">+ New goal</x-import>
+</div>
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Actual P&amp;L</div><div class="pos-strong" style="font:700 22px var(--font-sans);margin-top:4px">+$3,469</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Target P&amp;L</div><div style="font:700 22px var(--font-sans);margin-top:4px">{{ targetPLStr }}</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Savings rate</div><div style="font:700 22px var(--font-sans);margin-top:4px">59%</div></div>
+</div>
+<div class="qcard" style="padding:16px 18px">
+<div class="kicker" style="margin-bottom:8px">Progress to target</div>
+<div style="height:9px;background:var(--color-canvas-soft);border-radius:var(--radius-full)"><div style="height:100%;background:var(--color-primary);border-radius:var(--radius-full);width:{{ targetProgressPct }}%"></div></div>
+<div style="font-size:12px;color:var(--color-ink-muted);margin-top:6px">{{ targetProgressLabel }}</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+<sc-for list="{{ goals }}" as="g" hint-placeholder-count="3">
+<div class="qcard" style="padding:18px 20px">
+<div style="font-weight:700;font-size:16px">{{ g.name }}</div>
+<div style="height:8px;background:var(--color-canvas-soft);border-radius:var(--radius-full);margin:14px 0 8px"><div style="height:100%;background:var(--color-primary);border-radius:var(--radius-full);width:{{ g.barPct }}%"></div></div>
+<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--color-ink-muted)"><span>{{ g.current }} of {{ g.target }}</span><span style="font-weight:700;color:var(--color-ink)">{{ g.badgeStr }}</span></div>
+<div style="font-size:11.5px;color:var(--color-ink-faint);margin-top:6px">Projected: {{ g.projected }}</div>
+</div>
+</sc-for>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:420px">
+<div class="kicker" style="margin-bottom:10px">Edit monthly targets</div>
+<div class="prow"><span>Target P&amp;L</span><input class="txt-input" style="width:110px;text-align:right" value="{{ targetPL }}" onInput="{{ onTargetPLChange }}"></input></div>
+<div class="prow"><span>Weekly budget</span><input class="txt-input" style="width:110px;text-align:right" value="{{ weeklyBudget }}" onInput="{{ onWeeklyBudgetChange }}"></input></div>
+</div>
+</div>
+</sc-if>
+
+<!-- HISTORY -->
+<sc-if value="{{ isHistory }}">
+<div class="topbar"><h4>History</h4>
+<input class="txt-input" style="margin-left:auto;width:220px" placeholder="Search transactions" value="{{ historyQuery }}" onInput="{{ onSearch }}"></input>
+</div>
+<div class="content scroll-y">
+<div class="hstack">
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Total saved</div><div class="pos-strong" style="font:700 22px var(--font-sans);margin-top:4px">$28,410</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Avg per month</div><div style="font:700 22px var(--font-sans);margin-top:4px">$2,367</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Best month</div><div class="pos-strong" style="font:700 22px var(--font-sans);margin-top:4px">$4,120</div></div>
+<div class="qcard" style="flex:1;padding:14px 16px"><div class="kicker">Months tracked</div><div style="font:700 22px var(--font-sans);margin-top:4px">12</div></div>
+</div>
+<div class="qcard" style="padding:16px 18px">
+<div class="kicker" style="margin-bottom:8px">Cumulative savings</div>
+<svg viewBox="0 0 600 70" width="100%" height="70" preserveAspectRatio="none"><polygon points="0,70 0,55 100,48 200,42 300,30 400,22 500,12 600,4 600,70" fill="var(--color-primary)" opacity="0.18"/><polyline points="0,55 100,48 200,42 300,30 400,22 500,12 600,4" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</div>
+<div class="qcard scroll-y" style="flex:1;padding:16px 18px">
+<div class="kicker" style="margin-bottom:8px">Monthly history</div>
+<sc-for list="{{ monthRows }}" as="m" hint-placeholder-count="6">
+<div class="prow"><span style="width:60px">{{ m.label }}</span><div style="flex:1;height:6px;background:var(--color-canvas-soft);border-radius:var(--radius-full);margin:0 12px"><div style="height:100%;background:var(--color-primary);border-radius:var(--radius-full);width:{{ m.barPct }}%"></div></div><span class="pos-strong" style="width:60px;text-align:right">{{ m.inStr }}</span><span class="neg" style="width:60px;text-align:right">{{ m.outStr }}</span><span style="width:60px;text-align:right;font-weight:700;color:{{ m.plColor }}">{{ m.plStr }}</span></div>
+</sc-for>
+</div>
+<div class="qcard scroll-y" style="flex:1;padding:16px 18px">
+<div class="kicker" style="margin-bottom:8px">Transactions</div>
+<sc-for list="{{ filteredHistory }}" as="h" hint-placeholder-count="8">
+<div class="table-row" style="justify-content:space-between">
+<span style="width:90px;color:var(--color-ink-faint)">{{ h.date }}</span>
+<span style="flex:1">{{ h.name }}</span>
+<span class="{{ h.cls }}" style="font-weight:600">{{ h.amountStr }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ noResults }}"><div style="padding:20px 0;color:var(--color-ink-muted);font-size:13px">No transactions match "{{ historyQuery }}".</div></sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- SETTINGS -->
+<sc-if value="{{ isSettings }}">
+<div class="topbar"><h4>Settings</h4></div>
+<div class="content scroll-y">
+<div class="qcard" style="padding:18px 20px;max-width:520px">
+<div class="kicker" style="margin-bottom:12px">Appearance</div>
+<div class="prow" style="border-top:none"><span style="font-size:14px">Dark mode</span>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="secondary" hint-size="70px,32px" onClick="{{ toggleTheme }}" style="{&quot;padding&quot;:&quot;6px 16px&quot;,&quot;fontSize&quot;:&quot;12px&quot;}">{{ themeBtnLabel }}</x-import>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:12px">Currency symbol</div>
+<input class="txt-input" style="width:60px" value="{{ currencySymbol }}" onInput="{{ onCurrencyChange }}"></input>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Week view style</div>
+<div class="seg-mini"><span class="{{ weekViewClass.iso }}" onClick="{{ setWeekIso }}">ISO (Mon–Sun)</span><span class="{{ weekViewClass.month }}" onClick="{{ setWeekMonth }}">Month-aligned</span></div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Sidebar tabs</div>
+<div style="font-size:12px;color:var(--color-ink-muted);margin-bottom:10px">Show or hide tabs in the sidebar (Overview and Settings always stay).</div>
+<div style="display:flex;gap:16px;flex-wrap:wrap">
+<sc-for list="{{ sidebarToggles }}" as="t" hint-placeholder-count="4">
+<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" checked="{{ t.checked }}" onChange="{{ t.toggle }}"></input>{{ t.label }}</label>
+</sc-for>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:12px">Export data (CSV)</div>
+<div style="display:flex;gap:10px">
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="130px,32px" onClick="{{ exportMonth }}">Export this month</x-import>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="120px,32px" onClick="{{ exportAll }}">Export all months</x-import>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Connect bank account</div>
+<div style="font-size:12px;color:var(--color-ink-muted);margin-bottom:10px">Import a CSV/OFX export — your bank login is never entered here.</div>
+<div style="display:flex;gap:10px;align-items:center">
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="140px,32px" onClick="{{ importBank }}">Import CSV / OFX…</x-import>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="110px,32px" onClick="{{ clearImported }}">Clear imported</x-import>
+<span style="font-size:12px;color:var(--color-ink-muted)">{{ importedCount }} imported</span>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Live bank sync (Basiq) — beta</div>
+<div style="font-size:12px;color:var(--color-ink-muted);margin-bottom:10px">Untested until you add a key.</div>
+<div style="display:flex;gap:8px">
+<input class="txt-input" style="flex:1" placeholder="Basiq API key"></input>
+<input class="txt-input" style="flex:1" placeholder="User id"></input>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Categorization rules</div>
+<sc-for list="{{ rules }}" as="r" hint-placeholder-count="2">
+<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-top:var(--border-hairline)"><span>"{{ r.match }}" → {{ r.category }}</span><button onClick="{{ r.remove }}" style="background:none;border:none;color:var(--color-ink-muted);cursor:pointer">×</button></div>
+</sc-for>
+<div style="display:flex;gap:8px;margin-top:10px">
+<input class="txt-input" style="flex:1" placeholder="contains…" value="{{ ruleMatch }}" onInput="{{ onRuleMatchChange }}"></input>
+<input class="txt-input" style="flex:1" placeholder="category" value="{{ ruleCategory }}" onInput="{{ onRuleCategoryChange }}"></input>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="70px,32px" onClick="{{ addRule }}">Add</x-import>
+</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Net-worth accounts</div>
+<sc-for list="{{ accounts }}" as="a" hint-placeholder-count="2">
+<div class="prow"><span>{{ a.name }}</span><span style="font-weight:600">{{ a.balanceStr }}</span></div>
+</sc-for>
+<button class="row-add" onClick="{{ addAccount }}">+ Add account</button>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px">
+<div class="kicker" style="margin-bottom:6px">Modules</div>
+<div style="font-size:12px;color:var(--color-ink-muted)">No user modules found in data/modules/*.py.</div>
+</div>
+<div class="qcard" style="padding:18px 20px;max-width:520px;margin-top:16px;border-color:var(--color-danger)">
+<div class="kicker" style="color:var(--color-danger);margin-bottom:10px">Danger zone</div>
+<x-import component-from-global-scope="QuireDesignSystem_b94458.Button" variant="utility" hint-size="120px,32px" onClick="{{ resetApp }}" style="{&quot;color&quot;:&quot;var(--color-danger)&quot;}">Reset all data</x-import>
+</div>
+</div>
+</sc-if>
+
+</div>
+</div>
+
+<sc-if value="{{ paletteOpen }}">
+<div class="modal-scrim" onClick="{{ closePalette }}">
+<div class="modal-box" onClick="{{ stop }}">
+<input class="txt-input" style="border:none;border-radius:0;border-bottom:var(--border-hairline)" placeholder="Type a command…" value="{{ paletteQuery }}" onInput="{{ onPaletteQuery }}" autoFocus="{{ true }}"></input>
+<div class="scroll-y" style="padding:6px 0">
+<sc-for list="{{ paletteResults }}" as="a" hint-placeholder-count="5">
+<div style="padding:10px 16px;font-size:13.5px;cursor:pointer" onClick="{{ a.run }}">{{ a.label }}</div>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ searchOpen }}">
+<div class="modal-scrim" onClick="{{ closeSearch }}">
+<div class="modal-box" onClick="{{ stop }}">
+<input class="txt-input" style="border:none;border-radius:0;border-bottom:var(--border-hairline)" placeholder="Search items, subscriptions, people, transactions…" value="{{ globalQuery }}" onInput="{{ onGlobalQuery }}" autoFocus="{{ true }}"></input>
+<div class="scroll-y" style="padding:6px 0">
+<sc-for list="{{ globalResults }}" as="r" hint-placeholder-count="5">
+<div style="padding:10px 16px;font-size:13.5px;display:flex;justify-content:space-between"><span>{{ r.label }}</span><span style="color:var(--color-ink-muted);font-size:11px">{{ r.kind }}</span></div>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const DARK_VARS = "--color-canvas:#1c1c1e;--color-canvas-soft:#242426;--color-surface:#28282a;--color-ink:#f0f0f1;--color-ink-secondary:#cfcfd1;--color-ink-muted:#9a9a9d;--color-ink-faint:#6b6b6e;--color-hairline:#333335;--color-hairline-strong:#48484a;--border-hairline:1px solid #333335;";
+const LIGHT_VARS = "";
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const PALETTE_ACTIONS = ["Go to Overview","Go to Analytics","Go to Subscriptions","Go to Goals","Go to History","Go to Settings","Add income item","Add expense item","Import bank statement","Jump to July 2026","Jump to today","Collapse sidebar"];
+
+class Component extends DCLogic {
+  state = {
+    screen: "overview",
+    period: "month",
+    monthIdx: 6,
+    editMode: false,
+    analyticsTab: "overview",
+    range: "six",
+    billing: "monthly",
+    subsTab: "subscriptions",
+    historyQuery: "",
+    theme: "dark",
+    currencySymbol: "$",
+    weekView: "iso",
+    sidebarTabs: { analytics: true, subs: true, goals: true, history: true },
+    railCollapsed: false,
+    importedCount: 2,
+    rules: [ {match:"woolworths", category:"Groceries"}, {match:"netflix", category:"Entertainment"} ],
+    ruleMatch: "", ruleCategory: "",
+    targetPL: "3000", weeklyBudget: "700",
+    accounts: [ {name:"Everyday account", balance:4200}, {name:"Savings", balance:10450} ],
+    paletteOpen: false, paletteQuery: "",
+    searchOpen: false, globalQuery: "",
+    people: [
+      {name:"Sam", subs:["Spotify Family"], owed:9},
+      {name:"Alex", subs:["Spotify Family"], owed:9}
+    ],
+    consumables: [
+      {name:"Costco run", people:"Sam, Alex", price:64},
+      {name:"Firewood", people:"Alex", price:40}
+    ],
+    incoming: [
+      {name:"Employment", amountStr:"+$5,300", date:"07-01"},
+      {name:"Resale", amountStr:"+$0", date:"07-01"},
+      {name:"Dividends", amountStr:"+$180", date:"07-01"}
+    ],
+    outgoing: [
+      {name:"Rent", tags:["Fixed","Home"], amountStr:"-$2,000", due:"06-01"},
+      {name:"Water", tags:["Home"], amountStr:"-$50", due:"06-06"},
+      {name:"Wifi", tags:["Fixed"], amountStr:"-$100", due:"06-15"},
+      {name:"Electric", tags:["Home"], amountStr:"-$150", due:"06-20"},
+      {name:"Netflix", tags:[], amountStr:"-$23", due:"—"},
+      {name:"Adobe CC", tags:[], amountStr:"-$79", due:"—"},
+      {name:"Spotify Family", tags:[], amountStr:"-$9", due:"—"}
+    ],
+    goals: [
+      {name:"Emergency fund", pct:43, current:"$4,300", target:"$10,000", projected:"March 2027"},
+      {name:"New laptop", pct:62, current:"$1,250", target:"$2,000", projected:"October 2026"},
+      {name:"Vacation", pct:116, current:"$5,800", target:"$5,000", projected:"complete"}
+    ],
+    subs: [
+      {name:"Netflix", people:1, price:23},
+      {name:"Adobe CC", people:1, price:79},
+      {name:"Spotify Family", people:5, price:9},
+      {name:"iCloud+", people:1, price:3}
+    ],
+    history: [
+      {date:"07-01", name:"Employment", amount:5300},
+      {date:"06-20", name:"Electric", amount:-150},
+      {date:"06-15", name:"Wifi", amount:-100},
+      {date:"06-06", name:"Water", amount:-50},
+      {date:"06-01", name:"Rent", amount:-2000},
+      {date:"05-28", name:"Netflix", amount:-23},
+      {date:"05-20", name:"Adobe CC", amount:-79},
+      {date:"05-15", name:"Groceries", amount:-210}
+    ]
+  };
+
+  nav(screen){ return () => this.setState({screen}); }
+
+  componentDidMount() {
+    this._onKey = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      const map = {"1":"overview","2":"analytics","3":"subs","4":"goals","5":"history"};
+      if (map[e.key]) { e.preventDefault(); this.setState({screen: map[e.key]}); }
+      else if (e.key === ",") { e.preventDefault(); this.setState({screen:"settings"}); }
+      else if (e.key === "k") { e.preventDefault(); this.setState({paletteOpen:true}); }
+      else if (e.key === "f") { e.preventDefault(); this.setState({searchOpen:true}); }
+      else if (e.key === "\\") { e.preventDefault(); this.setState(s=>({railCollapsed:!s.railCollapsed})); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); this.setState(s=>({monthIdx:(s.monthIdx+11)%12})); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); this.setState(s=>({monthIdx:(s.monthIdx+1)%12})); }
+    };
+    window.addEventListener("keydown", this._onKey);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this._onKey); }
+
+  renderVals() {
+    const s = this.state;
+    const cls = (on) => on ? "rail-item active" : "rail-item";
+    const budgetRaw = [
+      {name:"Rent", budget:2000, actual:2000},
+      {name:"Electric", budget:130, actual:150},
+      {name:"Wifi", budget:100, actual:100},
+      {name:"Adobe CC", budget:70, actual:79},
+      {name:"Water", budget:60, actual:50}
+    ];
+    const budget = budgetRaw.map(b => {
+      const over = b.actual > b.budget;
+      return {
+        name: b.name, budgetStr: "$"+b.budget.toLocaleString(), actualStr: "$"+b.actual.toLocaleString(),
+        actualPct: Math.min(100, Math.round(b.actual/b.budget*100)),
+        actualColor: over ? "var(--color-danger)" : "var(--color-primary)",
+        overColor: over ? "var(--color-danger)" : "var(--color-ink-secondary)"
+      };
+    });
+
+    const goals = s.goals.map(g => {
+      const met = g.pct >= 100;
+      const overAmt = met ? Math.round((g.pct-100)/100 * parseFloat(g.target.replace(/[^0-9.]/g,""))) : 0;
+      return { ...g, barPct: Math.min(100, g.pct), badgeStr: met ? (overAmt>0 ? "met · $"+overAmt.toLocaleString()+" over" : "met") : g.pct+"%" };
+    });
+
+    const flowBarsRaw = [-800,1200,2100,900,3469,-400,2000];
+    const range = s.range === "six" ? flowBarsRaw.slice(1) : flowBarsRaw;
+    const maxAbs = Math.max(...range.map(v=>Math.abs(v)));
+    const flowBars = range.map((v,i)=>({label:MONTHS[(s.monthIdx-range.length+1+i+12)%12].slice(0,3), h: Math.max(6, Math.round(Math.abs(v)/maxAbs*100)), color: v>=0 ? "var(--color-success)" : "var(--color-danger)"}));
+
+    const monthPL = [-800,1200,2100,900,3469,-400,3469];
+    const monthRows = monthPL.map((v,i)=>{
+      const inAmt = Math.abs(v)+1800, outAmt = inAmt-v;
+      return {
+        label: MONTHS[(s.monthIdx-6+i+12)%12].slice(0,3),
+        inStr: "+$"+inAmt.toLocaleString(), outStr: "-$"+outAmt.toLocaleString(),
+        plStr: (v>=0?"+":"-")+"$"+Math.abs(v).toLocaleString(), plColor: v>=0 ? "var(--color-success)" : "var(--color-danger)",
+        barPct: Math.round(Math.abs(v)/3469*100)
+      };
+    });
+
+    const categories = [
+      {name:"Housing", amount:2000, color:"#6fb3ee"},
+      {name:"Utilities", amount:300, color:"#3a9d52"},
+      {name:"Subscriptions", amount:111, color:"#b98af0"},
+      {name:"Groceries", amount:420, color:"#e07a2c"},
+      {name:"Transport", amount:180, color:"#2f9d8f"}
+    ];
+    const catTotal = categories.reduce((a,c)=>a+c.amount,0);
+    const compositionBars = monthRows.map(()=>({segments: categories.map(c=>({h: Math.round(c.amount/catTotal*100), color:c.color}))}));
+
+    const avgTiles = [
+      {label:"Avg income", value:"$5,880", color:"var(--color-success)"},
+      {label:"Avg expenses", value:"$2,411", color:"var(--color-danger)"},
+      {label:"Avg P&L", value:"+$3,469", color:"var(--color-success)"},
+      {label:"Avg savings rate", value:"59%", color:"var(--color-ink)"}
+    ];
+    const mmTiles = [
+      {label:"Best month", value:"+$4,120", color:"var(--color-success)"},
+      {label:"Worst month", value:"-$800", color:"var(--color-danger)"},
+      {label:"Months positive", value:"9 / 12", color:"var(--color-ink)"},
+      {label:"Income growth", value:"+4.2%", color:"var(--color-success)"}
+    ];
+
+    const billMult = s.billing === "yearly" ? 12 : 1;
+    const subs = s.subs.map(sub => ({...sub, priceStr: "$"+(sub.price*billMult).toLocaleString()+(s.billing==="yearly"?"/yr":"/mo")}));
+    const subsTotal = s.subs.reduce((a,b)=>a+b.price,0) * billMult;
+    const renewals = s.subs.map((sub,i) => ({name: sub.name, left: 8 + i*22}));
+    const dueDays = {"Netflix":5, "Adobe CC":12, "Spotify Family":18, "iCloud+":24};
+    const daysInMonth = new Date(2026, s.monthIdx+1, 0).getDate();
+    const firstDow = (new Date(2026, s.monthIdx, 1).getDay()+6)%7; // Mon=0
+    const dueByDay = {};
+    s.subs.forEach(sub => { const d = dueDays[sub.name]; if (d) { dueByDay[d] = dueByDay[d] || []; dueByDay[d].push(sub.name); } });
+    const calendarCells = [];
+    for (let i=0;i<firstDow;i++) calendarCells.push({day:"", hasDue:false, rule:"none", numColor:"transparent"});
+    for (let d=1; d<=daysInMonth; d++) {
+      const due = dueByDay[d];
+      calendarCells.push({ day:d, hasDue: !!due, dueLabel: due ? due.join(", ") : "", rule: due ? "1px solid var(--color-primary)" : "var(--border-hairline)", numColor: due ? "var(--color-ink)" : "var(--color-ink-muted)" });
+    }
+    const weekdayLabels = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+
+    const q = s.historyQuery.trim().toLowerCase();
+    const filteredHistory = s.history.filter(h => h.name.toLowerCase().includes(q)).map(h => ({
+      date: h.date, name: h.name,
+      amountStr: (h.amount>=0?"+":"-") + "$"+Math.abs(h.amount).toLocaleString(),
+      cls: h.amount>=0 ? "pos-strong" : "neg"
+    }));
+
+    const paletteQ = s.paletteQuery.trim().toLowerCase();
+    const fuzzy = (label) => { let li=0; for (const ch of paletteQ) { li = label.toLowerCase().indexOf(ch, li); if (li===-1) return false; li++; } return true; };
+    const paletteResults = PALETTE_ACTIONS.filter(a => !paletteQ || fuzzy(a)).slice(0,8).map(label => ({label, run: () => { this.setState({paletteOpen:false, paletteQuery:""}); if (label.startsWith("Go to")) this.setState({screen: label.replace("Go to ","").toLowerCase()}); }}));
+
+    const gq = s.globalQuery.trim().toLowerCase();
+    const allEntities = [
+      ...s.incoming.map(i=>({label:i.name, kind:"Income"})),
+      ...s.outgoing.map(i=>({label:i.name, kind:"Expense"})),
+      ...s.subs.map(i=>({label:i.name, kind:"Subscription"})),
+      ...s.people.map(i=>({label:i.name, kind:"Person"})),
+      ...s.accounts.map(i=>({label:i.name, kind:"Account"})),
+      ...s.history.map(i=>({label:i.name, kind:"Transaction"}))
+    ];
+    const globalResults = gq ? allEntities.filter(e => e.label.toLowerCase().includes(gq)).slice(0,10) : [];
+
+    return {
+      themeVars: s.theme === "dark" ? DARK_VARS : LIGHT_VARS,
+      railCollapsed: s.railCollapsed,
+      onKeyDown: () => {},
+      isOverview: s.screen==="overview", isAnalytics: s.screen==="analytics", isSubs: s.screen==="subs",
+      isGoals: s.screen==="goals", isHistory: s.screen==="history", isSettings: s.screen==="settings",
+      navClass: {
+        overview: cls(s.screen==="overview"), analytics: cls(s.screen==="analytics"), subs: cls(s.screen==="subs"),
+        goals: cls(s.screen==="goals"), history: cls(s.screen==="history"), settings: cls(s.screen==="settings")
+      },
+      showTab: s.sidebarTabs,
+      goOverview: this.nav("overview"), goAnalytics: this.nav("analytics"), goSubs: this.nav("subs"),
+      goGoals: this.nav("goals"), goHistory: this.nav("history"), goSettings: this.nav("settings"),
+      periodClass: { month: s.period==="month" ? "on" : "", week: s.period==="week" ? "on" : "" },
+      setPeriodMonth: () => this.setState({period:"month"}),
+      setPeriodWeek: () => this.setState({period:"week"}),
+      monthLabel: MONTHS[s.monthIdx] + " 2026",
+      prevMonth: () => this.setState(st => ({monthIdx: (st.monthIdx+11)%12})),
+      nextMonth: () => this.setState(st => ({monthIdx: (st.monthIdx+1)%12})),
+      goToday: () => this.setState({monthIdx: new Date().getMonth()}),
+      editLabel: s.editMode ? "Done" : "Edit",
+      toggleEdit: () => this.setState(st => ({editMode: !st.editMode})),
+      openSearch: () => this.setState({searchOpen:true}),
+      incoming: s.incoming, outgoing: s.outgoing, goals, budget,
+      plSparkStart: MONTHS[(s.monthIdx+7)%12].slice(0,3),
+      incomingTotalStr: "+$5,880", outgoingTotalStr: "-$2,411",
+      addIncome: () => { const name = prompt("Income name?"); if(!name) return; const amt = prompt("Amount?","0"); this.setState(st=>({incoming:[...st.incoming,{name, amountStr:"+$"+(parseFloat(amt)||0).toLocaleString(), date:"—"}]})); },
+      addExpense: () => { const name = prompt("Expense name?"); if(!name) return; const amt = prompt("Amount?","0"); this.setState(st=>({outgoing:[...st.outgoing,{name, tags:[], amountStr:"-$"+(parseFloat(amt)||0).toLocaleString(), due:"—"}]})); },
+      analyticsTabClass: { overview: s.analyticsTab==="overview"?"on":"", income: s.analyticsTab==="income"?"on":"", expenses: s.analyticsTab==="expenses"?"on":"" },
+      setAnalyticsOverview: () => this.setState({analyticsTab:"overview"}), setAnalyticsIncome: () => this.setState({analyticsTab:"income"}), setAnalyticsExpenses: () => this.setState({analyticsTab:"expenses"}),
+      isAnalyticsOverview: s.analyticsTab==="overview", isAnalyticsIncome: s.analyticsTab==="income", isAnalyticsExpenses: s.analyticsTab==="expenses",
+      rangeClass: { six: s.range==="six" ? "on" : "", twelve: s.range==="twelve" ? "on" : "" },
+      setRangeSix: () => this.setState({range:"six"}), setRangeTwelve: () => this.setState({range:"twelve"}),
+      rangeLabel: s.range==="six" ? "last 6 months" : "last 12 months",
+      flowBars, avgTiles, mmTiles, monthRows, compositionBars,
+      billClass: { monthly: s.billing==="monthly" ? "on" : "", yearly: s.billing==="yearly" ? "on" : "" },
+      setBillMonthly: () => this.setState({billing:"monthly"}), setBillYearly: () => this.setState({billing:"yearly"}),
+      subs, subsTotalStr: "$"+subsTotal.toLocaleString()+(s.billing==="yearly"?"/yr":"/mo"),
+      subsMonthlyStr: "$"+s.subs.reduce((a,b)=>a+b.price,0).toLocaleString(),
+      renewals, calendarCells, weekdayLabels,
+      addSub: () => { const name = prompt("Subscription name?"); if(!name) return; const price = prompt("Monthly price?","0"); this.setState(st=>({subs:[...st.subs,{name, people:1, price: parseFloat(price)||0}]})); },
+      subsTabClass: { subs: s.subsTab==="subscriptions" ? "on" : "", people: s.subsTab==="people" ? "on" : "", consumables: s.subsTab==="consumables" ? "on" : "" },
+      setSubsTabSubs: () => this.setState({subsTab:"subscriptions"}), setSubsTabPeople: () => this.setState({subsTab:"people"}), setSubsTabConsumables: () => this.setState({subsTab:"consumables"}),
+      isSubsMain: s.subsTab==="subscriptions", isSubsPeople: s.subsTab==="people", isSubsConsumables: s.subsTab==="consumables",
+      people: s.people.map((p,i) => ({...p, owedStr:"$"+p.owed.toFixed(2), settle: () => this.setState(st=>({people: st.people.map((pp,ii)=> ii===i ? {...pp, owed:0} : pp)}))})),
+      owedTotalStr: "$"+s.people.reduce((a,b)=>a+b.owed,0).toFixed(2),
+      addPerson: () => { const name = prompt("Person's name?"); if(!name) return; this.setState(st=>({people:[...st.people,{name, subs:[], owed:0}]})); },
+      consumables: s.consumables.map(c => ({...c, priceStr:"$"+c.price.toLocaleString()})),
+      addConsumable: () => { const name = prompt("Consumable name?"); if(!name) return; const price = prompt("Price?","0"); this.setState(st=>({consumables:[...st.consumables,{name, people:"—", price: parseFloat(price)||0}]})); },
+      targetPL: s.targetPL, weeklyBudget: s.weeklyBudget,
+      targetPLStr: "$"+parseFloat(s.targetPL||0).toLocaleString(),
+      onTargetPLChange: (e) => this.setState({targetPL: e.target.value}),
+      onWeeklyBudgetChange: (e) => this.setState({weeklyBudget: e.target.value}),
+      targetProgressPct: Math.min(100, Math.round(3469/parseFloat(s.targetPL||1)*100)),
+      targetProgressLabel: 3469 >= parseFloat(s.targetPL||0) ? "Target met this month" : "$"+(parseFloat(s.targetPL||0)-3469).toLocaleString()+" to go",
+      addGoal: () => { const name = prompt("Goal name?"); if(!name) return; const target = parseFloat(prompt("Target amount?","1000"))||1000; this.setState(st=>({goals:[...st.goals,{name, pct:0, current:"$0", target:"$"+target.toLocaleString(), projected:"—"}]})); },
+      historyQuery: s.historyQuery,
+      onSearch: (e) => this.setState({historyQuery: e.target.value}),
+      filteredHistory, noResults: filteredHistory.length===0,
+      themeBtnLabel: s.theme==="dark" ? "On" : "Off",
+      toggleTheme: () => this.setState(st => ({theme: st.theme==="dark" ? "light" : "dark"})),
+      currencySymbol: s.currencySymbol,
+      onCurrencyChange: (e) => this.setState({currencySymbol: e.target.value}),
+      weekViewClass: { iso: s.weekView==="iso"?"on":"", month: s.weekView==="month"?"on":"" },
+      setWeekIso: () => this.setState({weekView:"iso"}), setWeekMonth: () => this.setState({weekView:"month"}),
+      sidebarToggles: ["analytics","subs","goals","history"].map(k => ({
+        label: k[0].toUpperCase()+k.slice(1), checked: s.sidebarTabs[k],
+        toggle: () => this.setState(st => ({sidebarTabs: {...st.sidebarTabs, [k]: !st.sidebarTabs[k]}}))
+      })),
+      exportMonth: () => alert("Exporting this month's data as CSV…"),
+      exportAll: () => alert("Exporting all months as CSV…"),
+      importBank: () => this.setState(st => ({importedCount: st.importedCount + 1})),
+      clearImported: () => { if (confirm("Clear all imported transactions?")) this.setState({importedCount:0}); },
+      importedCount: s.importedCount,
+      rules: s.rules.map((r,i) => ({...r, remove: () => this.setState(st=>({rules: st.rules.filter((_,ii)=>ii!==i)}))})),
+      ruleMatch: s.ruleMatch, ruleCategory: s.ruleCategory,
+      onRuleMatchChange: (e) => this.setState({ruleMatch: e.target.value}),
+      onRuleCategoryChange: (e) => this.setState({ruleCategory: e.target.value}),
+      addRule: () => { if(!s.ruleMatch || !s.ruleCategory) return; this.setState(st=>({rules:[...st.rules,{match:st.ruleMatch, category:st.ruleCategory}], ruleMatch:"", ruleCategory:""})); },
+      accounts: s.accounts.map(a => ({...a, balanceStr:"$"+a.balance.toLocaleString()})),
+      addAccount: () => { const name = prompt("Account name?"); if(!name) return; const balance = parseFloat(prompt("Balance?","0"))||0; this.setState(st=>({accounts:[...st.accounts,{name, balance}]})); },
+      resetApp: () => { if (confirm("Reset all app data? This cannot be undone.")) alert("App data reset."); },
+      paletteOpen: s.paletteOpen, paletteQuery: s.paletteQuery, paletteResults,
+      closePalette: () => this.setState({paletteOpen:false}),
+      onPaletteQuery: (e) => this.setState({paletteQuery: e.target.value}),
+      searchOpen: s.searchOpen, globalQuery: s.globalQuery, globalResults,
+      closeSearch: () => this.setState({searchOpen:false}),
+      onGlobalQuery: (e) => this.setState({globalQuery: e.target.value}),
+      stop: (e) => e.stopPropagation()
+    };
+  }
+}
+</script>
+</body>
+</html>

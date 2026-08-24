@@ -1,0 +1,546 @@
+[
+  {
+    "date": "01 Oct 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "01 Oct 2026",
+    "category": "Utilities",
+    "amount": 85.2,
+    "desc": "Monthly Electricity Bill",
+    "method": "BPAY",
+    "status": "Cleared"
+  },
+  {
+    "date": "02 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 18.5,
+    "desc": "Lunch - Local Cafe",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "02 Oct 2026",
+    "category": "Transport",
+    "amount": 4.6,
+    "desc": "Train Fare (Myki/Opal)",
+    "method": "Tap & Go",
+    "status": "Cleared"
+  },
+  {
+    "date": "03 Oct 2026",
+    "category": "Groceries",
+    "amount": 112.4,
+    "desc": "Weekly Grocery Run",
+    "method": "Woolworths) (Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "03 Oct 2026",
+    "category": "Entertainment",
+    "amount": 18.99,
+    "desc": "Netflix Subscription",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "04 Oct 2026",
+    "category": "Shopping",
+    "amount": 70.0,
+    "desc": "Startup Project Hoodie",
+    "method": "Blind Box) (PayPal",
+    "status": "Cleared"
+  },
+  {
+    "date": "05 Oct 2026",
+    "category": "Transport",
+    "amount": 65.0,
+    "desc": "Fuel - Caltex",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "06 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 12.5,
+    "desc": "Morning Coffee & Pastry",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "07 Oct 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "08 Oct 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "09 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 55.0,
+    "desc": "Dinner with Friends",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "10 Oct 2026",
+    "category": "Groceries",
+    "amount": 98.15,
+    "desc": "Weekend Groceries",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "11 Oct 2026",
+    "category": "Entertainment",
+    "amount": 45.0,
+    "desc": "Cinema Tickets & Popcorn",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "12 Oct 2026",
+    "category": "Transport",
+    "amount": 9.2,
+    "desc": "Daily Commute (Train/Bus)",
+    "method": "Tap & Go",
+    "status": "Cleared"
+  },
+  {
+    "date": "13 Oct 2026",
+    "category": "Shopping",
+    "amount": 120.0,
+    "desc": "Running Shoes",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "14 Oct 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "15 Oct 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "15 Oct 2026",
+    "category": "Utilities",
+    "amount": 60.0,
+    "desc": "Internet Service Provider",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "16 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 22.0,
+    "desc": "Friday Takeaway Pizza",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "17 Oct 2026",
+    "category": "Groceries",
+    "amount": 134.6,
+    "desc": "Major Grocery Restock",
+    "method": "Coles) (Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "18 Oct 2026",
+    "category": "Entertainment",
+    "amount": 11.99,
+    "desc": "Spotify Premium",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "19 Oct 2026",
+    "category": "Transport",
+    "amount": 4.6,
+    "desc": "Train Fare",
+    "method": "Tap & Go",
+    "status": "Cleared"
+  },
+  {
+    "date": "20 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 8.5,
+    "desc": "Morning Coffee & Muffin",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "21 Oct 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "22 Oct 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "23 Oct 2026",
+    "category": "Shopping",
+    "amount": 35.0,
+    "desc": "Bookstore Purchase",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "24 Oct 2026",
+    "category": "Groceries",
+    "amount": 85.3,
+    "desc": "Top-up Groceries",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "25 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 42.0,
+    "desc": "Sunday Brunch",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "26 Oct 2026",
+    "category": "Transport",
+    "amount": 68.0,
+    "desc": "Fuel - Seven Eleven",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "27 Oct 2026",
+    "category": "Transport",
+    "amount": 24.5,
+    "desc": "Uber Ride home",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "28 Oct 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "29 Oct 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "30 Oct 2026",
+    "category": "Food & Dining",
+    "amount": 75.0,
+    "desc": "Date Night Restaurant Dinner",
+    "method": "Credit Card",
+    "status": "Pending"
+  },
+  {
+    "date": "31 Oct 2026",
+    "category": "Entertainment",
+    "amount": 120.0,
+    "desc": "Theme Park Halloween Ticket",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "01 Nov 2026",
+    "category": "Groceries",
+    "amount": 105.4,
+    "desc": "Weekly Grocery Run",
+    "method": "Coles) (Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "02 Nov 2026",
+    "category": "Transport",
+    "amount": 4.6,
+    "desc": "Train Commute",
+    "method": "Tap & Go",
+    "status": "Cleared"
+  },
+  {
+    "date": "03 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 14.2,
+    "desc": "Lunch - Salad Bar",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "04 Nov 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "04 Nov 2026",
+    "category": "Utilities",
+    "amount": 88.4,
+    "desc": "Monthly Electricity Bill",
+    "method": "BPAY",
+    "status": "Cleared"
+  },
+  {
+    "date": "05 Nov 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "05 Nov 2026",
+    "category": "Utilities",
+    "amount": 60.0,
+    "desc": "Internet Broadband Bill",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "06 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 24.5,
+    "desc": "Friday Pizza Night",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "07 Nov 2026",
+    "category": "Shopping",
+    "amount": 45.0,
+    "desc": "Art Book Store",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "08 Nov 2026",
+    "category": "Groceries",
+    "amount": 115.3,
+    "desc": "Sunday Grocery Restock",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "09 Nov 2026",
+    "category": "Transport",
+    "amount": 62.0,
+    "desc": "Fuel - Caltex",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "10 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 8.5,
+    "desc": "Coffee & Pastry",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "11 Nov 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "12 Nov 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "13 Nov 2026",
+    "category": "Entertainment",
+    "amount": 18.99,
+    "desc": "Netflix Subscription",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "14 Nov 2026",
+    "category": "Shopping",
+    "amount": 70.0,
+    "desc": "Collectible Blind Box Hoodie",
+    "method": "PayPal",
+    "status": "Cleared"
+  },
+  {
+    "date": "15 Nov 2026",
+    "category": "Groceries",
+    "amount": 94.2,
+    "desc": "Weekly Grocery Run",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "16 Nov 2026",
+    "category": "Transport",
+    "amount": 4.6,
+    "desc": "Train Fare",
+    "method": "Tap & Go",
+    "status": "Cleared"
+  },
+  {
+    "date": "17 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 32.0,
+    "desc": "Weekday Dinner out",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "18 Nov 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "18 Nov 2026",
+    "category": "Entertainment",
+    "amount": 11.99,
+    "desc": "Spotify Premium",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "19 Nov 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "20 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 18.5,
+    "desc": "Lunch - Japanese Ramen",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "21 Nov 2026",
+    "category": "Groceries",
+    "amount": 128.9,
+    "desc": "Weekend Groceries",
+    "method": "Coles) (Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "22 Nov 2026",
+    "category": "Entertainment",
+    "amount": 35.0,
+    "desc": "Live Music Bar Entry",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "23 Nov 2026",
+    "category": "Transport",
+    "amount": 65.0,
+    "desc": "Fuel - Shell",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "24 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 6.8,
+    "desc": "Afternoon Tea",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "25 Nov 2026",
+    "category": "Health & Fitness",
+    "amount": 15.0,
+    "desc": "Weekly Gym Membership",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "26 Nov 2026",
+    "category": "Housing",
+    "amount": 450.0,
+    "desc": "Weekly Rent Payment",
+    "method": "Direct Debit",
+    "status": "Cleared"
+  },
+  {
+    "date": "27 Nov 2026",
+    "category": "Food & Dining",
+    "amount": 88.0,
+    "desc": "Friday Dinner Celebration",
+    "method": "Credit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "28 Nov 2026",
+    "category": "Groceries",
+    "amount": 76.5,
+    "desc": "Minor Grocery Top-up",
+    "method": "Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "29 Nov 2026",
+    "category": "Shopping",
+    "amount": 110.0,
+    "desc": "Winter Jacket",
+    "method": "Thrifted) (Debit Card",
+    "status": "Cleared"
+  },
+  {
+    "date": "30 Nov 2026",
+    "category": "Transport",
+    "amount": 9.2,
+    "desc": "Daily Commute",
+    "method": "Tap & Go",
+    "status": "Pending"
+  }
+]

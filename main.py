@@ -51,32 +51,24 @@ _GROWTH_EPS = 0.05
 
 
 def card(margins=None, spacing=None):
-    """A content block: no border, no fill. Whitespace does the grouping.
+    """A "qcard": BG_CARD fill, hairline border, radius-md corners — replicating
+    the Claude-Design mock (Budgeting App.dc.html, .qcard rule: surface fill,
+    border-hairline, radius-md, shadow-1). Each card is visually a discrete
+    object again, distinguishing it from its neighbours by a real edge rather
+    than by whitespace alone.
 
-    Formerly a bordered, filled panel. Every card, tile and stat box carried a
-    1px border and a BG_CARD fill, which is self-defeating: Filipiuk p34 says a
-    closed region groups its contents, but when *every* region is closed, closure
-    stops carrying information — and p35 (figure-ground) then has nothing to work
-    with, because if nothing is background then nothing is foreground either. The
-    Overview hero competed with eight ledger rows, four weekly P&L lines, a chart
-    and three goal bars, every one of them boxed and equally weighted.
-
-    So blocks are chrome-free and separated by BLOCK_GAP. Horizontal padding is
-    zero: the content column (T.CONTENT_MAX_W) already provides the margin, and a
-    block indenting itself inside it would only re-create the old inset.
-
-    There is no ``accent`` variant. It used to paint a 2px T.ACCENT rule above the
-    four Tier-1 Analytics charts, which broke down twice once everything else went
-    chrome-free: a lone 1100px-wide rule read as a section *divider* rather than
-    emphasis, and T.ACCENT is green — i.e. the income colour — sitting above
-    "Spending composition", an expense chart. That's the same rank-vs-state
-    confusion as the old red "Worst month". Hierarchy is carried by heading weight
-    (T.FS_HEAD bold) and order instead, which is also what Notion does.
+    (Qt's stylesheet system has no direct box-shadow; the mock's shadow-1 is
+    intentionally not replicated pixel-for-pixel here — a QGraphicsDropShadowEffect
+    per card would be expensive with the number of custom-painted charts inside
+    them, so elevation reads through fill + border only. This is the one place
+    the replica knowingly simplifies rather than perfectly matches.)
     """
     fr = QFrame(); fr.setObjectName("Card")
-    fr.setStyleSheet("#Card{background:transparent; border:none;}")
+    fr.setStyleSheet(
+        f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+        f"border-radius:{T.RADIUS}px;}}")
     lay = QVBoxLayout(fr)
-    lay.setContentsMargins(*(margins or (0, 0, 0, 0)))
+    lay.setContentsMargins(*(margins or (18, 16, 18, 16)))
     lay.setSpacing(T.SP_M if spacing is None else spacing)
     return fr, lay
 
@@ -1042,14 +1034,12 @@ class GoalsPage(QWidget):
         mlay.addLayout(prog)
         lay.addWidget(mcard)
 
-        # savings goals
+        # savings goals — the add action moved to the topbar's primary button
+        # (mock: "+ New goal" lives in the page header, not inside the card)
         gcard, glay = card()
         gh = QHBoxLayout()
         gh.addWidget(label("Savings goals", T.TEXT, T.FS_HEAD, bold=True))
         gh.addStretch(1)
-        add = Clickable("+ Add goal", T.TEXT_MUTED, 12, hover=T.ACCENT)
-        add.clicked.connect(self._add_goal)
-        gh.addWidget(add)
         glay.addLayout(gh)
         self.goals_box = QVBoxLayout(); self.goals_box.setSpacing(13)
         glay.addLayout(self.goals_box)
@@ -1328,9 +1318,14 @@ class GoalsPage(QWidget):
 #  History – totals, cumulative savings, month list
 # --------------------------------------------------------------------------- #
 class HistoryPage(QWidget):
+    # Cap how many matched transactions get real row widgets — a large import
+    # history could otherwise mean thousands of QWidgets on every keystroke.
+    _TX_ROW_CAP = 300
+
     def __init__(self, manager, goto):
         super().__init__()
         self.dm, self.goto = manager, goto
+        self._all_transactions = []
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         content = QWidget()
         lay = QVBoxLayout(content)
@@ -1351,6 +1346,29 @@ class HistoryPage(QWidget):
         self.rows = QVBoxLayout(); self.rows.setSpacing(3)
         llay.addLayout(self.rows)
         lay.addWidget(lcard)
+
+        # Transactions — was entirely missing: no way to browse or search the
+        # raw imported bank transactions anywhere in the app (only monthly
+        # aggregates). The topbar search field (self.search_input, wired into
+        # MainWindow's per-page action slot) filters this list live.
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search transactions")
+        self.search_input.setFixedWidth(220)
+        self.search_input.setStyleSheet(T.input_style("8px 12px"))
+        self.search_input.textChanged.connect(self._filter_transactions)
+
+        tcard, tlay = card((10, 12, 10, 10))
+        tlay.addWidget(label("Transactions", T.TEXT, T.FS_HEAD, bold=True))
+        self.tx_box = QVBoxLayout(); self.tx_box.setSpacing(1)
+        tx_holder = QWidget(); tx_holder.setStyleSheet("background:transparent;")
+        tx_holder.setLayout(self.tx_box)
+        tx_scroll = BoundedScroll(); tx_scroll.setWidgetResizable(True)
+        tx_scroll.setStyleSheet("background:transparent; border:none;")
+        tx_scroll.setWidget(tx_holder)
+        tx_scroll.setFixedHeight(280)
+        tlay.addWidget(tx_scroll)
+        lay.addWidget(tcard)
+
         lay.addStretch(1)
         outer.addWidget(scrollable(content, T.CONTENT_MAX_W))
 
@@ -1381,6 +1399,46 @@ class HistoryPage(QWidget):
         for (y, m, d) in reversed(data):
             self.rows.addWidget(self._month_row(y, m, d, cur))
         self.rows.addStretch(1)
+
+        self._currency = cur
+        self._all_transactions = sorted(
+            self.dm.transactions(), key=lambda t: t.get("date") or "", reverse=True)
+        self._filter_transactions(self.search_input.text())
+
+    def _filter_transactions(self, query):
+        q = (query or "").strip().lower()
+        matches = [t for t in self._all_transactions
+                  if q in (t.get("description") or "").lower()] if q else self._all_transactions
+        clear_layout(self.tx_box)
+        cur = getattr(self, "_currency", "$")
+        shown = matches[:self._TX_ROW_CAP]
+        for t in shown:
+            self.tx_box.addWidget(self._tx_row(t, cur))
+        if not matches:
+            empty = label(f'No transactions match "{query}".' if q else "No transactions imported yet.",
+                         T.TEXT_DIM, T.FS_BODY)
+            self.tx_box.addWidget(empty)
+        elif len(matches) > self._TX_ROW_CAP:
+            self.tx_box.addWidget(label(
+                f"…and {len(matches) - self._TX_ROW_CAP} more — refine your search to narrow this down.",
+                T.TEXT_DIM, T.FS_MICRO))
+        self.tx_box.addStretch(1)
+
+    def _tx_row(self, t, cur):
+        row = QWidget()
+        lyt = QHBoxLayout(row)
+        lyt.setContentsMargins(4, 7, 4, 7); lyt.setSpacing(T.SP_M)
+        date_lbl = label(t.get("date") or "—", T.TEXT_DIM, T.FS_MICRO)
+        date_lbl.setFixedWidth(84)
+        lyt.addWidget(date_lbl)
+        name_lbl = label(t.get("description") or "(no description)", T.TEXT, T.FS_BODY)
+        lyt.addWidget(name_lbl, 1)
+        amt = float(t.get("amount", 0.0))
+        amt_lbl = label(money(amt, cur), T.GREEN if amt >= 0 else T.RED, T.FS_BODY, bold=True)
+        amt_lbl.setFixedWidth(90)
+        amt_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lyt.addWidget(amt_lbl)
+        return row
 
     def _month_row(self, y, m, d, cur):
         inc = B.income_total(d)
@@ -3181,6 +3239,24 @@ class MainWindow(QMainWindow):
         self.topbar.set_title(TITLES[key])
         mv, nv = self._NAV_VIS.get(key, (False, False))
         self.topbar.set_controls_visible(mv, nv)
+        self.topbar.set_action(self._page_action(key))
+
+    def _page_action(self, key):
+        """The topbar's page-specific action widget (mock: Goals' "+ New goal"
+        lives in the header; History's search field does too). Built once and
+        cached per key — set_action() only detaches the outgoing widget, it
+        doesn't delete it, so a fresh button every visit would leak orphaned
+        QWidgets. None for pages without an action."""
+        if key == "goals":
+            if not hasattr(self, "_goals_new_btn"):
+                btn = _button("+ New goal", T.ON_ACCENT, T.GREEN, T.GREEN_BORDER)
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton{font-weight:700;}")
+                btn.clicked.connect(self.goals._add_goal)
+                self._goals_new_btn = btn
+            return self._goals_new_btn
+        if key == "history":
+            return self.history.search_input
+        return None
 
     # ---- keyboard layer ------------------------------------------------- #
     def _install_shortcuts(self):
@@ -3385,19 +3461,22 @@ def _register_fonts():
     from PyQt6.QtGui import QFontDatabase
     fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     fonts = (
-        # Arial Nova (Windows) — the configured family, regular/bold/light
-        "ArialNova.ttf", "ArialNova-Bold.ttf", "ArialNova-Italic.ttf",
-        "ArialNovaLight.ttf", "ArialNovaCond.ttf",
-        # fallback so the UI still renders if Arial Nova isn't installed
+        # Segoe UI (Windows) — the configured family, regular/bold/italic/
+        # light/semibold. Genuine designed weights (not synthesized), which
+        # matters since FONT_FAMILY_LIGHT is a real face, not a faked-thin one.
+        "segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf",
+        "segoeuil.ttf", "seguisb.ttf", "seguili.ttf",
+        # fallback so the UI still renders if Segoe UI isn't installed
         "arial.ttf", "arialbd.ttf",
     )
     for fname in fonts:
         path = os.path.join(fdir, fname)
         if os.path.exists(path):
             QFontDatabase.addApplicationFont(path)
-    # graceful fallback for QFont(...) constructions when Arial Nova isn't installed
-    QFont.insertSubstitutions(T.FONT_FAMILY, ["Arial", "sans-serif"])
-    QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT, [T.FONT_FAMILY, "Arial", "sans-serif"])
+    # graceful fallback for QFont(...) constructions when Segoe UI isn't installed
+    QFont.insertSubstitutions(T.FONT_FAMILY, ["Calibri", "Arial", "sans-serif"])
+    QFont.insertSubstitutions(T.FONT_FAMILY_LIGHT,
+                              [T.FONT_FAMILY, "Calibri Light", "Arial", "sans-serif"])
 
 
 def main():

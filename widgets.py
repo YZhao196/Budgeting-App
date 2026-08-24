@@ -170,6 +170,14 @@ def label(text: str, color: str = T.TEXT, px: int = 12, bold: bool = False,
     return lb
 
 
+def kicker(text: str) -> QLabel:
+    """Small uppercase section-header label — the mock's `.kicker` (11px, 600,
+    uppercase, ink-muted). Used for in-card section titles ("Month by month",
+    "Progress to target") as distinct from a card's own bold title-case header
+    ("Incoming", a dialog heading), which stays at label(…, T.FS_HEAD, bold=True)."""
+    return label(text.upper(), T.TEXT_MUTED, T.FS_MICRO, bold=True)
+
+
 def apply_ui_scale(scale: float, app=None) -> None:
     """Set the global UI scale and re-fit everything that reads it.
 
@@ -401,34 +409,28 @@ class Clickable(QLabel):
 class NavButton(QWidget):
     """A sidebar row: icon + full-width text label, Notion-style.
 
-    Was a 72px-wide stacked icon-over-caption tile whose 9px caption truncated
-    ("Quick start" rendered as "Quick sta…"). Now a horizontal row — icon left,
-    label at FS_BODY beside it — which is what the width is for. In collapsed
-    mode the label is dropped and the tooltip carries the name instead.
+    A 56×52 stacked tile in the 76px rail — 18px icon over a 10px caption
+    (mock .rail-item). Active: surface fill, radius-sm, PRIMARY icon+caption.
+    Hover: ink-coloured. Rest: ink-muted. The tooltip carries the full name
+    for anything the short caption can't (module pages).
     """
     clicked = pyqtSignal(str)
 
-    H = 34          # sidebar row height (a touch taller for the larger icon)
-    _ICON = 22      # bigger sidebar glyphs
+    W, H = 56, 52
+    _ICON = 18
 
     def __init__(self, key, icon, text):
         super().__init__()
         self.key, self.icon, self.text = key, icon, text
         self._active = False
         self._hover = False
-        self._collapsed = False
-        self.setFixedHeight(self.H)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setFixedSize(self.W, self.H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.setToolTip(text)
 
     def setActive(self, a):
         self._active = a
-        self.update()
-
-    def setCollapsed(self, c):
-        self._collapsed = c
         self.update()
 
     def enterEvent(self, e): self._hover = True; self.update()
@@ -451,94 +453,84 @@ class NavButton(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Selected/hover is a filled row, not a left tick-mark: with a real text
-        # label the whole row is the target, so the whole row should light up.
-        if self._active or self._hover:
-            p.setBrush(QColor(T.BG_PILL if self._active else T.BG_HOVER))
+        if self._active:
+            p.setBrush(QColor(T.BG_CARD))          # surface tile lifts off the rail
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRectF(T.SP_XS, 0, self.width() - 2 * T.SP_XS,
-                                     self.height()),
-                              T.RADIUS, T.RADIUS)
+            p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                              T.RADIUS_SM, T.RADIUS_SM)
+        elif self._hover:
+            p.setBrush(QColor(T.BG_HOVER))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
+                              T.RADIUS_SM, T.RADIUS_SM)
 
-        col = T.TEXT if (self._active or self._hover) else T.TEXT_MUTED
-        if self._collapsed:
-            x = (self.width() - self._ICON) / 2
-        else:
-            x = T.SP_M
+        # PRIMARY_TEXT, not PRIMARY: this paints the active tile's icon+caption,
+        # real small text/glyphs that need the 4.5:1 bar PRIMARY (a fill/border
+        # tone) doesn't clear at this size.
+        col = T.PRIMARY_TEXT if self._active else (T.TEXT if self._hover else T.TEXT_MUTED)
+        isz = T.scaled(self._ICON)
         icons.draw(p, self.icon,
-                   QRectF(x, (self.height() - self._ICON) / 2,
-                          self._ICON, self._ICON), col, 1.7)
+                   QRectF((self.width() - isz) / 2, 8, isz, isz), col, 1.6)
 
-        if not self._collapsed:
-            f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(T.FS_BODY))
-            f.setBold(self._active)
-            p.setFont(f)
-            p.setPen(QColor(col))
-            tx = T.SP_M + self._ICON + T.SP_S
-            p.drawText(QRectF(tx, 0, self.width() - tx - T.SP_S, self.height()),
-                       int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                       self.text)
+        f = QFont(T.FONT_FAMILY); f.setPixelSize(T.scaled(10))
+        p.setFont(f)
+        p.setPen(QColor(col))
+        fm = p.fontMetrics()
+        cap = fm.elidedText(self.text, Qt.TextElideMode.ElideRight, self.width() - 6)
+        p.drawText(QRectF(0, 8 + isz + 4, self.width(), 14),
+                   int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+                   cap)
         draw_focus_ring(self, p)
 
 
 class Sidebar(QWidget):
     navigated = pyqtSignal(str)
 
-    # Full words. "Subs" was an abbreviation forced by a 72px rail that no longer
-    # exists, and "Quick start" used to render as "Quick sta…".
+    # Short captions sized for a 56px tile (the tooltip carries full names).
     ITEMS = [("overview",      "overview",  "Overview"),
              ("analytics",     "analytics", "Analytics"),
-             ("subscriptions", "subs",      "Subscriptions"),
+             ("subscriptions", "subs",      "Subs"),
              ("goals",         "goals",     "Goals"),
              ("history",       "history",   "History")]
 
     def __init__(self):
         super().__init__()
-        self._collapsed = False
         self.setFixedWidth(T.SIDEBAR_W)
-        self.setStyleSheet(f"background:{T.BG_SIDEBAR};")
+        self.setStyleSheet(
+            f"background:{T.BG_SIDEBAR}; border-right:1px solid {T.BORDER};")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(T.SP_S, 0, T.SP_S, T.SP_M)
-        lay.setSpacing(1)
+        lay.setContentsMargins(0, T.SP_L, 0, T.SP_L)
+        lay.setSpacing(T.SP_XS)
+        lay.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._lay = lay
 
-        self.logo = QLabel("$")
-        lf = QFont(T.FONT_FAMILY); lf.setPixelSize(T.scaled(22)); lf.setBold(True)
-        self.logo.setFont(lf)
-        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.logo.setFixedHeight(T.HEADER_H)
-        self.logo.setStyleSheet(f"color:{T.ACCENT}; background:transparent;")
-        lay.addWidget(self.logo)
-        lay.addSpacing(T.SP_XS)
+        # The mock's logo: a 28px primary rounded square, no glyph.
+        self.logo = QWidget()
+        self.logo.setFixedSize(28, 28)
+        self.logo.setStyleSheet(
+            f"background:{T.PRIMARY}; border-radius:{T.RADIUS_SM}px; border:none;")
+        lay.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        lay.addSpacing(14)
 
         self.buttons = {}
         for key, ic, text in self.ITEMS:
             b = NavButton(key, ic, text)
             b.clicked.connect(self.navigated.emit)
             self.buttons[key] = b
-            lay.addWidget(b)
+            lay.addWidget(b, 0, Qt.AlignmentFlag.AlignHCenter)
 
         lay.addStretch(1)
-        # Settings is a different kind of destination from the five content
-        # pages, so it sits below a divider rather than in the same run.
-        self._divider = hsep()
-        lay.addWidget(self._divider)
-        lay.addSpacing(T.SP_XS)
         s = NavButton("settings", "settings", "Settings")
         s.clicked.connect(self.navigated.emit)
         self.buttons["settings"] = s
-        lay.addWidget(s)
+        lay.addWidget(s, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.setActive("overview")
 
     def toggle_collapsed(self):
-        """Collapse to an icon-only rail (bound to Ctrl+\\, as in Notion)."""
-        self._collapsed = not self._collapsed
-        self.setFixedWidth(T.SIDEBAR_W_COLLAPSED if self._collapsed else T.SIDEBAR_W)
-        self.logo.setVisible(not self._collapsed)
-        self._divider.setVisible(not self._collapsed)
-        for b in self.buttons.values():
-            b.setCollapsed(self._collapsed)
+        """Ctrl+\\ hides the rail entirely (mock behaviour); the shortcut lives
+        on MainWindow, so it can bring the rail back while hidden."""
+        self.setVisible(not self.isVisible())
 
     # Overview and Settings can't be hidden (you need a home and a way back).
     ALWAYS = {"overview", "settings"}
@@ -555,7 +547,8 @@ class Sidebar(QWidget):
         b = NavButton(key, icon, text)
         b.clicked.connect(self.navigated.emit)
         self.buttons[key] = b
-        self._lay.insertWidget(self._lay.count() - 2, b)   # before stretch + Settings
+        self._lay.insertWidget(self._lay.count() - 2, b,   # before stretch + Settings
+                               0, Qt.AlignmentFlag.AlignHCenter)
         return b
 
     def setActive(self, key):
@@ -569,9 +562,10 @@ class Sidebar(QWidget):
 class IconButton(QWidget):
     clicked = pyqtSignal()
 
-    def __init__(self, icon, size=28, isz=14, color=T.TEXT_MUTED):
+    def __init__(self, icon, size=28, isz=14, color=T.TEXT_MUTED, bg=None):
         super().__init__()
         self.icon, self.isz, self._color = icon, isz, color
+        self._bg = bg          # mock .icon-btn-mini: circular canvas-soft fill
         self._hover = False
         self.setFixedSize(size, size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -596,6 +590,10 @@ class IconButton(QWidget):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._bg:
+            p.setBrush(QColor(T.BG_HOVER if self._hover else self._bg))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(self.rect())
         col = T.TEXT if self._hover else self._color
         m = (self.width() - self.isz) / 2
         icons.draw(p, self.icon, QRectF(m, m, self.isz, self.isz), col, 1.6)
@@ -748,10 +746,14 @@ class MonthNav(QWidget):
         lay.addWidget(self.lbl); lay.addWidget(br)
 
     def _style_lbl(self):
+        # Mock's bordered month-nav pill: transparent fill, hairline border,
+        # radius-sm. PRIMARY on hover — this is chrome/navigation, not a
+        # green/red data state.
         self.lbl.setStyleSheet(
-            f"QPushButton{{color:{T.TEXT}; background:{T.BG_CARD}; border:1px solid {T.BORDER};"
-            f"border-radius:{T.RADIUS}px; padding:5px 0; letter-spacing:1px;}}"
-            f"QPushButton:hover{{border-color:{T.ACCENT}; color:{T.TEXT};}}")
+            f"QPushButton{{color:{T.TEXT_SECONDARY}; background:transparent;"
+            f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS_SM}px;"
+            f"padding:6px 4px; font-weight:600;}}"
+            f"QPushButton:hover{{border-color:{T.PRIMARY}; color:{T.TEXT};}}")
 
     def set_label(self, text):
         self.lbl.setText(text)
@@ -786,18 +788,16 @@ class TopBar(QWidget):
         super().__init__()
         self.setFixedHeight(T.HEADER_H)
         self.setStyleSheet(
-            f"background:{T.BG_HEADER}; border-bottom:1px solid {T.BORDER_SOFT};")
-        # The header's contents ride the same centred column as the page body, so
-        # the title lands on the content's left edge and the search button on its
-        # right edge instead of floating against the window frame while the body
-        # sits 170px inboard of them.
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
+            f"background:{T.BG_APP}; border-bottom:1px solid {T.BORDER};")
+        # Mock's .topbar: full-width row, 24px side padding, month-nav pushed
+        # right with margin-left:auto (not centred) — the page fills the
+        # window now, so the header does too instead of riding a bounded
+        # column.
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(24, 0, 24, 0)
+        lay.setSpacing(14)
 
-        self.title = label("Overview", T.TEXT, T.FS_HEAD, bold=True)
+        self.title = label("Overview", T.TEXT, T.FS_TITLE, bold=True)
         self.modebar = SegTabBar(["Month", "Week"], 0, kind="pill")
         self.modebar.changed.connect(lambda m: self.mode_changed.emit(m.lower()))
         self.nav = MonthNav()
@@ -807,20 +807,44 @@ class TopBar(QWidget):
         self.nav.jump.connect(self.jump.emit)
 
         center = QWidget()
-        cl = QHBoxLayout(center); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(12)
+        cl = QHBoxLayout(center); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(14)
         cl.addWidget(self.modebar); cl.addWidget(self.nav)
         self._center = center
 
-        self.search_btn = IconButton("search", 32, 19)
+        self.search_btn = IconButton("search", 32, 15, bg=T.BG_CARD_SOFT)
         self.search_btn.setToolTip("Search (everything)")
         self.search_btn.clicked.connect(self.search.emit)
 
+        # Optional page-specific primary action (mock: Goals' "+ New goal"
+        # button lives in the topbar, not buried in a card) — empty by default,
+        # populated per-page via set_action().
+        self._action_holder = QWidget()
+        self._action_lay = QHBoxLayout(self._action_holder)
+        self._action_lay.setContentsMargins(0, 0, 0, 0)
+        self._action_widget = None
+
         lay.addWidget(self.title)
-        lay.addStretch(1)
         lay.addWidget(center)
-        lay.addStretch(1)
+        lay.addStretch(1)          # mock: month-nav sits margin-left:auto of
+                                    # the title, search stays pinned right
+        lay.addWidget(self._action_holder)
         lay.addWidget(self.search_btn)
-        outer.addWidget(bounded(row, T.CONTENT_MAX_W))
+
+    def set_action(self, widget):
+        """Swap the topbar's page-specific action widget. Pass None to clear.
+
+        Detaches (does NOT delete) the outgoing widget: callers may hand this
+        a page-owned, persistent field (e.g. History's search input, which
+        keeps its own state and signal connections) rather than a fresh
+        throwaway — deleteLater() here would destroy it the moment another
+        page's action replaces it, crashing on the next visit to History."""
+        if self._action_widget is not None:
+            self._action_lay.removeWidget(self._action_widget)
+            self._action_widget.setParent(None)
+            self._action_widget = None
+        if widget is not None:
+            self._action_lay.addWidget(widget)
+            self._action_widget = widget
 
     def set_controls_visible(self, mode: bool, nav: bool):
         """Show/hide the Month|Week pill and the date navigation arrow block."""
@@ -850,9 +874,10 @@ class SegTabBar(QWidget):
         lay.setSpacing(3 if kind == "pill" else 18)
 
         if kind == "pill":
+            # Mock .seg-mini: canvas-soft track, no border, fully-rounded.
             self.setStyleSheet(
                 f"SegTabBar {{ background:{T.BG_CARD_SOFT};"
-                f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS}px; }}")
+                f"border:none; border-radius:{T.RADIUS_PILL}px; }}")
 
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
@@ -877,10 +902,10 @@ class SegTabBar(QWidget):
         if self.kind == "pill":
             b.setStyleSheet(f"""
                 QPushButton {{ background:transparent; color:{T.TEXT_MUTED};
-                    border:none; border-radius:{T.RADIUS_SM}px; padding:5px 13px; }}
+                    border:none; border-radius:{T.RADIUS_PILL}px; padding:6px 14px; }}
                 QPushButton:hover {{ color:{T.TEXT}; }}
                 QPushButton:checked {{ background:{T.BG_PILL}; color:{T.TEXT};
-                    border-radius:{T.RADIUS_SM}px; }}""")
+                    border-radius:{T.RADIUS_PILL}px; }}""")
         else:
             b.setStyleSheet(f"""
                 QPushButton {{ background:transparent; color:{T.TEXT_MUTED};
@@ -888,7 +913,7 @@ class SegTabBar(QWidget):
                     border-bottom:2px solid transparent; }}
                 QPushButton:hover {{ color:{T.TEXT}; }}
                 QPushButton:checked {{ color:{T.TEXT};
-                    border-bottom:2px solid {T.ACCENT}; }}""")
+                    border-bottom:2px solid {T.PRIMARY}; }}""")
 
     def set_active(self, name):
         """Check the button with this label without emitting `changed`."""
@@ -1290,18 +1315,20 @@ class LedgerCard(QFrame):
         self.store = None                    # ItemStore — when set, edits persist there
         self.tag_filter = None               # show only rows carrying this tag
         self._just_added_id = None           # node id to fade in on next rebuild
+        self._adding = False                 # True while the inline add-item
+                                              # form (name + amount together) is open
 
         self.setObjectName("Card")
-        # Fill and surrounding border dropped with every other block; the 2px top
-        # rule stays because here it is *functional*, not decorative — green vs
-        # red is the income/expense distinction this card exists to make, the
-        # same signal as the ▲/▼ and the sign on every amount below it. That's
-        # the opposite of the T.ACCENT rule removed from card(), which used the
-        # income colour to mean "important" and landed above an expense chart.
+        # Full qcard chrome (fill + hairline border + radius), matching the
+        # mock's plain Incoming/Outgoing containers — plus a 2px functional
+        # top rule the mock doesn't have: green vs red is the income/expense
+        # distinction this card exists to make, the same signal as the ▲/▼
+        # and the sign on every amount below it. Qt's border shorthand lets
+        # border-top override just that one edge, so both read together.
         accent = T.GREEN if kind == "income" else T.RED
         self.setStyleSheet(
-            f"#Card{{background:transparent; border:none;"
-            f"border-top:2px solid {accent};}}")
+            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+            f"border-radius:{T.RADIUS}px; border-top:2px solid {accent};}}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 14, 0, 8)
@@ -1487,10 +1514,13 @@ class LedgerCard(QFrame):
                         add.clicked.connect(lambda _=False, p=node: self._add_child(p))
                         self.list_box.addWidget(add)
 
-        more = Clickable("+ Add item", T.TEXT_DIM, 12, hover=T.ACCENT)
-        more.setContentsMargins(PAD_L + CHEV_W, 6, 0, 0)
-        more.clicked.connect(self._add_top)
-        self.list_box.addWidget(more)
+        if self._adding:
+            self.list_box.addWidget(self._build_add_row())
+        else:
+            more = Clickable("+ Add item", T.TEXT_DIM, 12, hover=T.ACCENT)
+            more.setContentsMargins(PAD_L + CHEV_W, 6, 0, 0)
+            more.clicked.connect(self._open_add_row)
+            self.list_box.addWidget(more)
         self.list_box.addStretch(1)
 
         if week_filtering:
@@ -1813,6 +1843,87 @@ class LedgerCard(QFrame):
         self._editing = (node["id"], "name")
         self._just_added_id = node["id"]
         self.rebuild(); self.changed.emit()
+
+    # -- inline add-item row (name + amount together) --------------------- #
+    def _open_add_row(self):
+        """Replace "+ Add item" with a real two-field form (name, amount) shown
+        at once — previously the only way to set an amount on a new item was to
+        Tab out of the auto-focused, empty-named blank row and hope to notice
+        the amount field existed. Making both inputs visible up front was
+        flagged as a missing feature relative to the reference design."""
+        self._adding = True
+        self.rebuild()
+
+    def _cancel_add_row(self):
+        self._adding = False
+        self.rebuild()
+
+    def _submit_add_row(self, name_edit, amt_edit):
+        name = name_edit.text().strip()
+        if not name:
+            name_edit.setFocus()
+            name_edit.setStyleSheet(
+                f"background:{T.BG_INPUT}; color:{T.TEXT};"
+                f"border:1px solid {T.RED}; border-radius:{T.RADIUS_SM}px; padding:6px 10px;")
+            return
+        amount = amt_edit.value()
+
+        if self.store:
+            defn = self.store.add_top(self._item_type(), self._range_start_iso())
+            def_id = self._def_of(defn)
+            self.store.edit_field(def_id, self._occ_of(defn), "name", name, scope="all")
+            if amount:
+                self.store.edit_field(def_id, self._occ_of(defn), "amount", amount, scope="all")
+            self._just_added_id = defn["id"]
+        else:
+            node = self._new_node()
+            node["name"] = name
+            node["amount"] = amount
+            self.nodes().append(node)
+            self._just_added_id = node["id"]
+
+        self._adding = False
+        self.rebuild(); self.changed.emit()
+
+    def _build_add_row(self):
+        """The inline add-item form: name + amount fields side by side, a
+        confirm and a cancel action — both fields visible and editable at
+        once, rather than a single auto-focused name field with the amount
+        only reachable by Tab."""
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(PAD_L + CHEV_W, 4, PAD_R, 4)
+        lay.setSpacing(8)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("Item name")
+        name_edit.setStyleSheet(
+            f"background:{T.BG_INPUT}; color:{T.TEXT};"
+            f"border:1px solid {T.BORDER}; border-radius:{T.RADIUS_SM}px; padding:6px 10px;")
+
+        amt_edit = MoneySpin()
+        amt_edit.setRange(0, 1_000_000)
+        amt_edit.setDecimals(2)
+        amt_edit.setPrefix(self.currency)
+        amt_edit.setFixedWidth(110)
+
+        ok = Clickable("Add", T.GREEN, 12, hover=T.GREEN_BRIGHT, bold=True)
+        cancel = Clickable("Cancel", T.TEXT_DIM, 12, hover=T.TEXT)
+
+        def submit():
+            self._submit_add_row(name_edit, amt_edit)
+        name_edit.returnPressed.connect(submit)
+        amt_edit.lineEdit().returnPressed.connect(submit)   # Enter in either field submits
+        ok.clicked.connect(submit)
+        cancel.clicked.connect(self._cancel_add_row)
+
+        lay.addWidget(name_edit, 1)
+        lay.addWidget(amt_edit)
+        lay.addWidget(ok)
+        lay.addWidget(cancel)
+
+        QTimer.singleShot(0, name_edit.setFocus)
+        return row
 
     def _open_priority(self, node, pos):
         m = QMenu(self)
@@ -2191,7 +2302,7 @@ class TagDialog(QDialog):
     def __init__(self, parent, tags, suggestions=None):
         super().__init__(parent)
         self.setWindowTitle("Tags")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(300)
         self._tags = [str(t) for t in (tags or [])]
         self._result = None
@@ -2314,7 +2425,7 @@ class CommandPalette(QDialog):
     def __init__(self, parent, actions):
         super().__init__(parent)
         self.setWindowTitle("Command palette")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(520)
         self._actions = actions
         self._picked = False
@@ -2398,7 +2509,7 @@ class SearchDialog(QDialog):
     def __init__(self, parent, search_fn, on_pick):
         super().__init__(parent)
         self.setWindowTitle("Search")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(480)
         self._search_fn = search_fn
         self._on_pick = on_pick
@@ -2457,7 +2568,7 @@ class NoteDialog(QDialog):
     def __init__(self, parent, name, note):
         super().__init__(parent)
         self.setWindowTitle("Note")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(360)
         self._result = None
         lay = QVBoxLayout(self)
@@ -2557,7 +2668,7 @@ class PersonDialog(QDialog):
         super().__init__(parent)
         self._editing = person is not None
         self.setWindowTitle("Edit person" if self._editing else "Add person")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(340)
         self._result = None
         p = person or {}
@@ -2635,7 +2746,7 @@ class AccountDialog(QDialog):
         super().__init__(parent)
         self._editing = account is not None
         self.setWindowTitle("Edit account" if self._editing else "Add account")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(340)
         self._result = None
         a = account or {}
@@ -2715,7 +2826,7 @@ class TrackerItemDialog(QDialog):
         super().__init__(parent)
         self._editing = item is not None
         self.setWindowTitle("Edit tracked item" if self._editing else "Add tracked item")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(360)
         self._result = None
         a = item or {}
@@ -2829,7 +2940,7 @@ class BudgetDialog(QDialog):
     def __init__(self, parent, rows, currency="$"):
         super().__init__(parent)
         self.setWindowTitle("Set category budgets")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(430)
         self._result = None
         self._spins = {}                 # category id → spinbox
@@ -2903,7 +3014,7 @@ class TransactionReviewDialog(QDialog):
     def __init__(self, parent, transactions, expense_names, currency="$"):
         super().__init__(parent)
         self.setWindowTitle("Review transactions")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumSize(620, 480)
         self._currency = currency
         self._expense_names = expense_names
@@ -3016,7 +3127,7 @@ class SharedPlanDialog(QDialog):
         self._currency = currency
         self._mem_rows = []          # [{name, cb, spin, row}] — one per person
         self.setWindowTitle("Edit subscription" if self._editing else "Add subscription")
-        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD};}}")
+        self.setStyleSheet(f"QDialog{{background:{T.BG_CARD}; border:1px solid {T.BORDER}; border-radius:{T.RADIUS_LG}px;}}")
         self.setMinimumWidth(400)
         self._result = None
 
@@ -3462,9 +3573,10 @@ class SummaryCard(QFrame):
 
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:transparent; border:none;}}")
+            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+            f"border-radius:{T.RADIUS}px;}}")
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14); root.setSpacing(0)
+        root.setContentsMargins(18, 16, 18, 16); root.setSpacing(0)
 
         self.tabs = SegTabBar(["Monthly", "Yearly", "YTD"], 0, kind="pill")
         self.tabs.changed.connect(self._period)
@@ -3917,10 +4029,11 @@ class ChartCard(QFrame):
         self.dm = manager
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:transparent; border:none;}}")
+            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+            f"border-radius:{T.RADIUS}px;}}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(8)
-        lay.addWidget(label("P&L — Last 5 months", T.TEXT_MUTED, 11))
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(8)
+        lay.addWidget(kicker("P&L — Last 5 months"))
         self.chart = PnLChart()
         lay.addWidget(self.chart, 1)
         self.set_context(year, month, target)
@@ -3941,12 +4054,13 @@ class PredictedIncomeCard(QFrame):
         self.store = store
         self.setObjectName("Card")
         self.setStyleSheet(
-            f"#Card{{background:transparent; border:none;}}")
+            f"#Card{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+            f"border-radius:{T.RADIUS}px;}}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(6)
+        lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(6)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(label("PREDICTED INCOME — NEXT MONTH", T.TEXT_MUTED, 9, bold=True))
+        hdr.addWidget(kicker("Predicted income — next month"))
         hdr.addStretch(1)
         lay.addLayout(hdr)
 
@@ -4540,6 +4654,22 @@ class CalendarHeatmap(QWidget):
             p.drawText(rect.adjusted(4, 2, -2, 0),
                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
                        str(day))
+
+            # inline due-label — was dot-only (name only reachable via hover);
+            # the mock shows the subscription name directly on the cell, so a
+            # due day is legible at a glance without moving the mouse.
+            due_here = self.due_days.get(day)
+            if due_here and rect.height() >= 30:
+                fdue = QFont(T.FONT_FAMILY); fdue.setPixelSize(T.scaled(8))
+                fdue.setBold(True)
+                p.setFont(fdue)
+                p.setPen(QColor(T.PRIMARY_TEXT))   # small text — needs 4.5:1, not
+                                                    # PRIMARY's fill/border 3:1
+                txt = ", ".join(due_here[:2])
+                p.drawText(rect.adjusted(4, 15, -2, -2),
+                           int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop |
+                               Qt.TextFlag.TextWordWrap),
+                           txt)
 
             # due / income dots (bottom-right corner)
             dx = rect.right() - 7
@@ -5219,19 +5349,21 @@ class DonutChart(QWidget):
 
 
 class MetricTile(QFrame):
-    """Small caption-over-value summary tile.
-
-    Chrome-free, like every other block: the caption/value pair and the gap to
-    the next tile are enough to group it. It used to carry a BG_CARD_SOFT fill
-    *and* a border, which made it one more equally-weighted box on a page that
-    was already nothing but boxes (Filipiuk p35 — figure-ground).
-    """
+    """Small caption-over-value summary tile — a qcard (mock: `<div class="qcard"
+    style="padding:14px 16px">`), the kicker/value pattern used for every stat
+    row across the app."""
     def __init__(self, caption, value="", color=T.TEXT):
         super().__init__()
-        self.setStyleSheet("QFrame{background:transparent; border:none;}")
+        self.setObjectName("Tile")
+        self.setStyleSheet(
+            f"#Tile{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+            f"border-radius:{T.RADIUS}px;}}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(T.SP_XS)
-        lay.addWidget(label(caption, T.TEXT_MUTED, T.FS_MICRO))
+        lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(T.SP_XS)
+        # Qt Style Sheets don't support text-transform, so the mock's uppercase
+        # kicker is applied to the string itself rather than left as a no-op CSS
+        # rule.
+        lay.addWidget(label(caption.upper(), T.TEXT_MUTED, T.FS_MICRO, bold=True))
         self.value = label(value, color, T.FS_METRIC, bold=True)
         lay.addWidget(self.value)
         self._spark: Sparkline | None = None
@@ -5444,32 +5576,28 @@ class GoalDialog(QDialog):
 #  Goals bar — horizontal strip at bottom of OverviewPage
 # --------------------------------------------------------------------------- #
 class GoalsBar(QFrame):
-    """Full-width horizontal goals strip shown across the bottom of the overview."""
+    """Row of individual goal qcards across the bottom of the overview — the
+    mock's `<sc-for list="goals"><div class="qcard" style="flex:1;...">`, each
+    goal a real bordered card sharing the row equally, rather than the previous
+    borderless chip strip. A horizontal scroll still backstops many goals,
+    which the mock's fixed 3-up assumption doesn't account for."""
 
     def __init__(self, manager):
         super().__init__()
         self.dm = manager
         self.setObjectName("GoalsBar")
-        self.setStyleSheet(
-            f"#GoalsBar{{background:transparent; border:none;}}")
-        self.setFixedHeight(120)
+        self.setStyleSheet(f"#GoalsBar{{background:transparent; border:none;}}")
+        self.setFixedHeight(150)
 
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(16, 10, 16, 10)
-        outer.setSpacing(14)
-
-        hdr = label("GOALS", T.TEXT_MUTED, 9, bold=True)
-        hdr.setFixedWidth(38)
-        outer.addWidget(hdr, 0, Qt.AlignmentFlag.AlignTop)
-
-        sep = QFrame(); sep.setFixedWidth(1)
-        sep.setStyleSheet(f"background:{T.BORDER_SOFT}; border:none;")
-        outer.addWidget(sep)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+        outer.addWidget(kicker("Goals"))
 
         self._holder = QWidget()
         self._holder.setStyleSheet("background:transparent;")
         self._hlay = QHBoxLayout(self._holder)
-        self._hlay.setSpacing(24)
+        self._hlay.setSpacing(T.GAP)
         self._hlay.setContentsMargins(0, 0, 0, 0)
 
         self._scroll = BoundedScroll()
@@ -5494,11 +5622,14 @@ class GoalsBar(QFrame):
             left   = max(0.0, target - saved)
             done   = frac >= 1.0
 
-            chip = QWidget()
-            chip.setStyleSheet("background:transparent;")
-            chip.setFixedWidth(188)
+            chip = QFrame()
+            chip.setObjectName("GoalChip")
+            chip.setStyleSheet(
+                f"#GoalChip{{background:{T.BG_CARD}; border:1px solid {T.BORDER};"
+                f"border-radius:{T.RADIUS}px;}}")
+            chip.setMinimumWidth(180)
             vlay = QVBoxLayout(chip)
-            vlay.setContentsMargins(0, 0, 0, 0)
+            vlay.setContentsMargins(14, 12, 14, 12)
             vlay.setSpacing(6)
 
             # name + percentage on same row
@@ -5510,7 +5641,7 @@ class GoalsBar(QFrame):
             top_row.addWidget(label(f"{frac * 100:.0f}%", pct_col, 11, bold=done))
             vlay.addLayout(top_row)
 
-            vlay.addWidget(ProgressBar(frac, T.GREEN if done else T.SERIES[1], 7))
+            vlay.addWidget(ProgressBar(frac, T.GREEN if done else T.PRIMARY, 7))
 
             # saved / target row
             mid_row = QHBoxLayout(); mid_row.setSpacing(4)
@@ -5530,5 +5661,4 @@ class GoalsBar(QFrame):
                 rem_row.addStretch(1)
                 vlay.addLayout(rem_row)
 
-            self._hlay.addWidget(chip)
-        self._hlay.addStretch(1)
+            self._hlay.addWidget(chip, 1)

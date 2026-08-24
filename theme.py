@@ -11,59 +11,62 @@ scale, never ad-hoc numbers (Filipiuk p50-52 — soft 8pt grid).
 """
 
 # --------------------------------------------------------------------------- #
-#  Colours
+#  Colours — "Quire" palette, replicated from the Claude-Design mock
+#  (Budgeting App.dc.html). Neutrals come from the mock's DARK_VARS verbatim;
+#  functional green/red/amber are kept from the previous theme (AA-verified)
+#  and re-checked against the new, lighter surfaces.
 # --------------------------------------------------------------------------- #
-BG_APP        = "#111111"   # base background (near black)
-BG_SIDEBAR    = "#181818"   # left navigation rail
-BG_HEADER     = "#181818"   # top bar
-BG_CARD       = "#1e1e1e"   # panels / cards
-BG_CARD_SOFT  = "#242424"   # nested rows, sub-boxes, tiles
-BG_HOVER      = "#2c2c2c"   # row / button hover
-BG_TAG        = "#242424"   # muted neutral tag-chip fill — metadata, NOT a
-                            # functional colour: a tag is content, so it reads as
-                            # a quiet grey pill, leaving green/accent free to mean
-                            # "income / on-track" and nothing else.
-BG_INPUT      = "#1e1e1e"   # editable fields — LIGHTER than BG_APP, not darker.
-                            # Was #0e0e0e, which read as a recessed well against
-                            # the old #1e1e1e card fill. Blocks are transparent
-                            # now, so fields sit on BG_APP (#111111) instead and
-                            # #0e0e0e against it is 1.02:1 — literally invisible.
-                            # Notion does the same thing in reverse (#f7f7f5 on
-                            # white): a field is lighter than its page, not darker.
-BG_PILL       = "#303030"   # active segmented-button background
+BG_APP        = "#1c1c1e"   # canvas — window base
+BG_SIDEBAR    = "#242426"   # canvas-soft — the icon rail
+BG_HEADER     = "#1c1c1e"   # topbar sits on canvas, separated by a hairline
+BG_CARD       = "#28282a"   # surface — cards ("qcard"), dialogs, menus
+BG_CARD_SOFT  = "#242426"   # canvas-soft — nested tracks, tiles, seg-mini rails
+BG_HOVER      = "#313134"   # row / button hover (one step above surface)
+BG_TAG        = "#242426"   # neutral tag-chip fill (metadata, not a state)
+BG_INPUT      = "#242426"   # txt-input fill = canvas-soft, on surface cards
+BG_PILL       = "#28282a"   # seg-mini active thumb = surface on canvas-soft rail
 
-BORDER        = "#2c2c2c"   # default hairline border
-BORDER_SOFT   = "#1c1c1c"   # subtle divider — dropped nearer the background
-                            # (#202020 → #1c1c1c) so a hairline whispers, not speaks
-GRID          = "#181818"   # chart gridlines only — the faintest ink on a chart,
-                            # kept separate from BORDER_SOFT so dividers and grid
-                            # lines tune independently (data line must dominate)
-BORDER_LIGHT  = "#454545"   # raised border / input boundary
-                            # No flat grey reaches WCAG 1.4.11's 3:1 against
-                            # BG_APP without looking like a light-mode escapee
-                            # (#5a5a5a is still only 2.74:1), so a field's
-                            # boundary is carried by fill AND border together
-                            # (1.13:1 + 1.97:1) rather than either alone.
+BORDER        = "#333335"   # hairline — card edges, row dividers, input borders
+BORDER_SOFT   = "#2a2a2c"   # quieter divider (between canvas and hairline)
+GRID          = "#232325"   # chart gridlines only — faintest ink on a chart
+BORDER_LIGHT  = "#48484a"   # hairline-strong — scrollbar thumb, raised edges
 
-TEXT          = "#d4d4d4"   # primary text                    (11.25:1 on BG_CARD)
-TEXT_MUTED    = "#9a9a9a"   # secondary / labels               (5.92:1 on BG_CARD)
-TEXT_DIM      = "#909090"   # tertiary (dates, hints)          (4.86:1 on BG_CARD_SOFT)
-                            # was #8a8a8a — 4.50:1 on BG_CARD_SOFT sat exactly on
-                            # the AA bar with no margin; nudged up so the tightest
-                            # surface pairing still clears it.
+TEXT          = "#f0f0f1"   # ink — primary text and figures
+TEXT_SECONDARY= "#cfcfd1"   # ink-secondary — month label, row emphasis
+TEXT_MUTED    = "#9a9a9d"   # ink-muted — kickers, captions, rail items
+TEXT_DIM      = "#939396"   # tertiary (dates, hints) — AA-checked on BG_CARD
+TEXT_FAINT    = "#6b6b6e"   # ink-faint — decorative micro-annotations ONLY
+                            # (sparkline axis ends); below AA, never for
+                            # information that isn't available elsewhere.
+
+PRIMARY       = "#4a72d8"   # deep navy accent — logo fill, progress-bar fills,
+                            # hover borders, active-tab underline. Was a paler
+                            # sky blue (#5aa2e8); darkened for a richer "dark
+                            # blue" read. Only clears WCAG 1.4.11's 3:1
+                            # non-text bar (2.03–2.35 for a fully dark navy at
+                            # this luminance) — near-black surfaces put a hard
+                            # floor on how dark a blue can go and stay visible
+                            # at all, so use PRIMARY only on graphical fills/
+                            # borders, never as small text. A chrome accent,
+                            # deliberately NOT a data state — green/red still
+                            # own income/expense meaning.
+PRIMARY_TEXT  = "#7d9fe6"   # same navy family, lightened for the two spots
+                            # PRIMARY is read as actual small text rather than
+                            # a fill or border (the active sidebar-rail caption/
+                            # icon, calendar due-date labels) — those need the
+                            # 4.5:1 text bar, which the fill-toned PRIMARY above
+                            # misses by a wide margin at this small a size.
 
 GREEN         = "#5da876"   # income / positive (muted sage)    (5.82:1 on BG_CARD)
 GREEN_BRIGHT  = "#74c490"   # hero P&L number                   (7.97:1 on BG_CARD)
 GREEN_BG      = "#192219"   # "Incoming" stat box fill
 GREEN_BORDER  = "#243824"
 
-RED           = "#cc7676"   # expense / negative (muted terracotta)
-                            # 5.10:1 on BG_CARD, 4.75:1 on BG_CARD_SOFT. Was
-                            # #b86060 at 3.87:1 — used for every expense amount at
-                            # 13px bold, which is *not* WCAG "large text" (needs
-                            # >=18.66px, or >=14px bold), so the 4.5:1 body bar
-                            # applied and it missed. Lifted until it clears on
-                            # every surface it actually lands on.
+RED           = "#d07c7c"   # expense / negative (muted terracotta)
+                            # Lifted again for the lighter Quire surfaces: the
+                            # previous #cc7676 sat at exactly 4.50:1 on the new
+                            # #28282a card — zero margin. #d07c7c clears 4.5:1
+                            # comfortably on every surface expense text lands on.
 RED_BRIGHT    = "#e08c8c"   # hover / emphasis                  (6.59:1 on BG_CARD)
 RED_BG        = "#221818"   # "Outgoing" stat box fill
 RED_BORDER    = "#382424"
@@ -166,64 +169,50 @@ SPACE = [4, 8, 12, 16, 24, 32, 48]
 SP_XS, SP_S, SP_M, SP_L, SP_XL, SP_2XL, SP_3XL = SPACE
 
 # --------------------------------------------------------------------------- #
-#  Type scale
+#  Type scale — mapped from the mock's sizes
 # --------------------------------------------------------------------------- #
-# Five steps, each a visible jump (ratios 1.27 / 1.14 / 1.25 / 1.5). The previous
-# scale ran 9/10/11/12/13/14/15px — seven steps at ~1.1, which is below the
-# just-noticeable-difference threshold, so 12px next to 13px read as
-# inconsistency rather than hierarchy.
-#
-# FS_METRIC exists because a numbers-first tool genuinely needs a step between
-# body and hero: a stat tile's value is not body text and not the page's answer.
-# Collapsing it into either would be a scale that's tidy on paper and wrong on
-# screen.
-FS_MICRO  = 11              # column captions, hints, timestamps
-FS_BODY   = 14              # body text, ledger rows, data
-FS_HEAD   = 16              # block headings
-FS_METRIC = 20              # stat-tile values
-FS_HERO   = 30              # the one number a page exists to answer
+FS_MICRO  = 11              # kickers (uppercase section labels), hints, captions
+FS_BODY   = 13              # body text, ledger rows, data (mock runs 13–13.5px)
+FS_HEAD   = 15              # card headings ("Incoming", dialog titles)
+FS_METRIC = 22              # stat-tile values
+FS_TITLE  = 22              # topbar page title (700, -0.4px tracking)
+FS_HERO   = 28              # the one number a page exists to answer
 
 # --------------------------------------------------------------------------- #
-#  Sizing
+#  Sizing — mock geometry
 # --------------------------------------------------------------------------- #
-SIDEBAR_W           = 240   # was 72 — an icon rail whose 9px captions truncated
-                            # ("Quick start" rendered as "Quick sta…")
-SIDEBAR_W_COLLAPSED = 48    # icon-only, toggled with "["
-HEADER_H            = 56
-RADIUS              = 9     # panels, inputs, buttons, menus, dialogs. Rounder
-                            # theme (was 5): Filipiuk p132 — rounder reads as more
-                            # user-friendly. 9px is soft and approachable while
-                            # still crisp; small elements use the two below.
-RADIUS_SM           = 6     # chips, tags, bars, calendar cells, focus rings
-RADIUS_PILL         = 999   # fully-rounded ends — progress bars, segmented pills
+SIDEBAR_W           = 76    # icon rail: 56×52 items, 18px icon over 10px caption
+SIDEBAR_W_COLLAPSED = 0     # Ctrl+\ hides the rail entirely (mock behaviour)
+HEADER_H            = 60
+RADIUS              = 12    # radius-md — cards, menus, dialogs
+RADIUS_SM           = 8     # radius-sm — inputs, small buttons, rail items, chips
+RADIUS_LG           = 16    # radius-lg — modal boxes (palette / search)
+RADIUS_PILL         = 999   # radius-full — progress tracks, seg-mini pills
                             # (clamped to height/2 at the draw site)
 
-CONTENT_MAX_W = 1100        # was unbounded. A 1680px window stretched five ~390px
-                            # columns across 1500px and put a label at x=111 with
-                            # its own spinbox at x=1520. Filipiuk p33: elements far
-                            # apart read as *unrelated*, which is exactly wrong for
-                            # a field and its label. The ~580px this "wastes" is
-                            # answered by Filipiuk p229 — negative space is what
-                            # creates focus; "it looks plain" is not a reason to
-                            # fill it.
+CONTENT_MAX_W = None        # the mock fills the window on every page; narrow
+                            # surfaces (Settings cards) cap their own width at
+                            # 520px instead of the page capping content.
+SETTINGS_CARD_W = 520       # max-width of a Settings section card (mock value)
 
-GAP          = SP_M         # gutter between the three main columns
-SCROLL_GUTTER = 16          # gap between scrollable content and the scrollbar, so
-                            # content never butts against the 10px bar at the
-                            # viewport's right edge
-GAP_SECTION = 48            # visual "paragraph break" between topic clusters
-BLOCK_GAP   = 40            # air *between* blocks (5×8pt). Was 32; widened so the
-                            # page breathes between blocks the way Notion does —
-                            # calm between blocks, density kept inside them
-                            # (critique §5). GAP_SECTION stays a step larger so a
-                            # topic shift still reads as a bigger break than a
-                            # block gap.
+GAP          = SP_L         # 16px gutter between cards (mock .content gap)
+SCROLL_GUTTER = 16          # gap between scrollable content and the scrollbar
+GAP_SECTION = SP_XL         # a larger break between topic clusters (24px)
+BLOCK_GAP   = SP_L          # cards carry their own borders again, so page
+                            # rhythm tightens back to the mock's 16px grid
 
 WIN_W       = 1680
 WIN_H       = 980
 
-FONT_FAMILY       = "Arial Nova"       # base UI font
-FONT_FAMILY_LIGHT = "Arial Nova Light" # large display numbers only (>= ~18px)
+FONT_FAMILY       = "Segoe UI"         # base UI font — chosen over Arial Nova for
+                                        # a numbers-dense finance UI: genuine
+                                        # humanist warmth (not a squeezed grotesque),
+                                        # true designed Light/Semibold/Bold weights
+                                        # rather than synthesized ones, strong
+                                        # tabular figures for aligned money columns,
+                                        # and the broadest Unicode/language coverage
+                                        # of any common Windows UI font.
+FONT_FAMILY_LIGHT = "Segoe UI Light"   # large display numbers only (>= ~18px)
 
 # --------------------------------------------------------------------------- #
 #  Fluid UI scale
@@ -254,18 +243,16 @@ def compute_scale(win_w: int) -> float:
     return _SCALE_LO + t * (_SCALE_HI - _SCALE_LO)
 
 
-def input_style(pad: str = "6px 9px") -> str:
+def input_style(pad: str = "8px 12px") -> str:
     """Shared style for a field styled inline (a field on a dialog/card that
-    needs its own BG_INPUT fill). Matches the global QSS behaviour — fill, no
-    resting border, border only on hover/focus (Notion-style, critique §2) — so
-    an inline-styled field can't drift back to a resting box while the plain
-    fields around it stay borderless. Covers QPlainTextEdit too (the note
-    editor), which the global QSS doesn't reach."""
+    needs its own BG_INPUT fill). Matches the global QSS / the mock's
+    .txt-input: canvas-soft fill, hairline resting border, radius-sm. Covers
+    QPlainTextEdit too (the note editor), which the global QSS doesn't reach."""
     sel = "QLineEdit,QPlainTextEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QComboBox"
     return (
         f"{sel}{{background:{BG_INPUT}; color:{TEXT};"
-        f" border:1px solid transparent; border-radius:{RADIUS}px; padding:{pad};}}"
-        f"{sel.replace(',', ':hover,')}:hover{{border:1px solid {BORDER};}}"
+        f" border:1px solid {BORDER}; border-radius:{RADIUS_SM}px; padding:{pad};}}"
+        f"{sel.replace(',', ':hover,')}:hover{{border:1px solid {BORDER_LIGHT};}}"
         f"{sel.replace(',', ':focus,')}:focus{{border:1px solid {FOCUS};}}")
 
 # --------------------------------------------------------------------------- #
@@ -289,36 +276,33 @@ def global_qss() -> str:
         padding: 4px 7px;
     }}
 
-    /* Thin, flat scrollbars ------------------------------------------------ */
+    /* Thin scrollbars (mock: 6px, rounded, hairline-strong thumb) ---------- */
     QScrollArea {{ border: none; background: transparent; }}
     QScrollBar:vertical {{
-        background: transparent; width: 10px; margin: 0;
+        background: transparent; width: 6px; margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: {BORDER_LIGHT}; min-height: 30px; border-radius: 5px;
+        background: {BORDER_LIGHT}; min-height: 30px; border-radius: 3px;
     }}
     QScrollBar::handle:vertical:hover {{ background: {BORDER_LIGHT}; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
     QScrollBar:horizontal {{ height: 0; }}
 
-    /* Dialogs / inputs ----------------------------------------------------- */
+    /* Dialogs / inputs (mock .txt-input: canvas-soft fill, hairline border,
+       radius-sm, 8px 12px padding) ---------------------------------------- */
     QDialog {{ background: {BG_CARD}; }}
     QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox {{
         background: {BG_INPUT};
-        border: 1px solid transparent;   /* reserve the space, show no resting box */
-        border-radius: {RADIUS}px;
-        padding: 6px 9px;
+        border: 1px solid {BORDER};
+        border-radius: {RADIUS_SM}px;
+        padding: 8px 12px;
         selection-background-color: {GREEN};
         selection-color: {ON_ACCENT};
     }}
-    /* A field reads as editable by being a lighter fill than the (transparent)
-       block, Notion-style — not by a resting frame. The border only appears as
-       a real state: faint on hover, FOCUS on focus. The transparent resting
-       border keeps the box model fixed so nothing shifts 1px when it shows. */
     QLineEdit:hover, QComboBox:hover, QDateEdit:hover,
     QDoubleSpinBox:hover, QSpinBox:hover {{
-        border: 1px solid {BORDER};
+        border: 1px solid {BORDER_LIGHT};
     }}
     QLineEdit:focus, QComboBox:focus, QDateEdit:focus,
     QDoubleSpinBox:focus, QSpinBox:focus {{
